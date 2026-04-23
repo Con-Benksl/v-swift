@@ -1,0 +1,9 @@
+pub const DETECT_OS: &str = include_str!("../../scripts/detect_os.sh");
+pub const PREPARE: &str = include_str!("../../scripts/prepare.sh");
+pub const INSTALL_XRAY: &str = include_str!("../../scripts/install_xray.sh");
+pub const CONFIGURE_VLESS_REALITY: &str = include_str!("../../scripts/configure_vless_reality.sh");
+pub const INSTALL_HYSTERIA2: &str = include_str!("../../scripts/install_hysteria2.sh");
+pub const CONFIGURE_HYSTERIA2: &str = include_str!("../../scripts/configure_hysteria2.sh");
+pub const SETUP_FIREWALL: &str = include_str!("../../scripts/setup_firewall.sh");
+pub const UNINSTALL_XRAY: &str = include_str!("../../scripts/uninstall_xray.sh");
+pub const UNINSTALL_HYSTERIA2: &str = include_str!("../../scripts/uninstall_hysteria2.sh");

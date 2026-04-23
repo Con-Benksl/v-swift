@@ -1,0 +1,467 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, State};
+use tokio::net::TcpStream;
+use tokio::time::{sleep, timeout, Duration};
+
+use crate::credentials;
+use crate::deploy::{
+    self, DeployParams, NodeRecord, OsInfo, ProgressSink, ProtocolId, VpsProfileSummary,
+};
+use crate::error::{AppError, AppResult};
+use crate::events::{DeployEventPayload, TauriProgressSink};
+use crate::ssh::{SshSession, VpsCredential};
+use crate::storage::{Storage, VpsProfileRecord};
+use crate::subscription;
+
+pub struct AppState {
+    pub storage: Storage,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionTarget {
+    pub vps_profile_id: Option<String>,
+    pub credential: Option<VpsCredential>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubscriptionDto {
+    pub uri: String,
+    pub qr_svg: String,
+}
+
+struct ResolvedDeployTarget {
+    profile: VpsProfileRecord,
+    credential: VpsCredential,
+    should_save_credential: bool,
+}
+
+#[tauri::command]
+pub async fn test_connection(
+    state: State<'_, AppState>,
+    target: ConnectionTarget,
+) -> AppResult<()> {
+    let credential = resolve_connection_target(&state.storage, target)?;
+    let ssh = SshSession::connect(&credential).await?;
+    let exec_result = ssh.exec("true").await;
+    let close_result = ssh.close().await;
+    let result = exec_result?;
+    close_result?;
+
+    if result.exit_code == 0 {
+        Ok(())
+    } else {
+        Err(AppError::Other(format!(
+            "connectivity check failed with exit code {}",
+            result.exit_code
+        )))
+    }
+}
+
+#[tauri::command]
+pub async fn detect_os(
+    state: State<'_, AppState>,
+    target: ConnectionTarget,
+) -> AppResult<OsInfo> {
+    let credential = resolve_connection_target(&state.storage, target)?;
+    let ssh = SshSession::connect(&credential).await?;
+    let detect_result = deploy::detect_os(&ssh).await;
+    let close_result = ssh.close().await;
+    let os = detect_result?;
+    close_result?;
+    Ok(os)
+}
+
+#[tauri::command]
+pub async fn deploy_node(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    params: DeployParams,
+) -> AppResult<NodeRecord> {
+    let progress = TauriProgressSink::new(app);
+    let result = deploy_node_inner(&progress, &state.storage, params).await;
+
+    match result {
+        Ok(node) => {
+            progress.emit(DeployEventPayload::Done { node: node.clone() })?;
+            Ok(node)
+        }
+        Err(err) => {
+            let (step, message) = deploy_error_details(&err);
+            let _ = progress.emit(DeployEventPayload::Error { step, message });
+            Err(err)
+        }
+    }
+}
+
+#[tauri::command]
+pub fn list_nodes(state: State<'_, AppState>) -> AppResult<Vec<NodeRecord>> {
+    state.storage.list()
+}
+
+#[tauri::command]
+pub fn list_vps_profiles(state: State<'_, AppState>) -> AppResult<Vec<VpsProfileSummary>> {
+    let mut profiles = state.storage.list_vps_profiles()?;
+
+    for profile in &mut profiles {
+        profile.credential_available = match state.storage.get_vps_profile(&profile.id) {
+            Ok(record) => match credentials::exists(&record.credential_key) {
+                Ok(value) => value,
+                Err(err) => {
+                    log::warn!(
+                        "failed to inspect keychain entry for VPS profile {}: {}",
+                        profile.id,
+                        err
+                    );
+                    false
+                }
+            },
+            Err(err) => {
+                log::warn!("failed to load VPS profile {}: {}", profile.id, err);
+                false
+            }
+        };
+    }
+
+    Ok(profiles)
+}
+
+#[tauri::command]
+pub fn get_node(state: State<'_, AppState>, id: String) -> AppResult<NodeRecord> {
+    state.storage.get(&id)
+}
+
+#[tauri::command]
+pub fn forget_vps_profile(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    let credential_key = state
+        .storage
+        .get_vps_profile(&id)
+        .ok()
+        .map(|record| record.credential_key);
+    state.storage.delete_vps_profile(&id)?;
+    if let Some(key) = credential_key {
+        if let Err(err) = credentials::delete(&key) {
+            log::warn!(
+                "forget_vps_profile: failed to delete keychain entry {}: {}",
+                key,
+                err
+            );
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn forget_orphan_vps_profiles(state: State<'_, AppState>) -> AppResult<u32> {
+    let profiles = state.storage.list_vps_profiles()?;
+    let mut removed = 0u32;
+    for profile in profiles {
+        let record = match state.storage.get_vps_profile(&profile.id) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let available = credentials::exists(&record.credential_key).unwrap_or(false);
+        if !available {
+            state.storage.delete_vps_profile(&profile.id)?;
+            let _ = credentials::delete(&record.credential_key);
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
+#[tauri::command]
+pub fn get_subscription(
+    state: State<'_, AppState>,
+    id: String,
+) -> AppResult<SubscriptionDto> {
+    let node = state.storage.get(&id)?;
+    let subscription = subscription::build(&node)?;
+
+    Ok(SubscriptionDto {
+        uri: subscription.uri,
+        qr_svg: subscription.qr_svg,
+    })
+}
+
+#[tauri::command]
+pub async fn uninstall_node(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    let node = state.storage.get(&id)?;
+    let profile = state.storage.get_vps_profile(&node.vps_id)?;
+    let auth = load_saved_auth(&profile)?;
+    let credential = VpsCredential {
+        host: profile.host,
+        port: profile.ssh_port,
+        user: profile.ssh_user,
+        auth,
+    };
+
+    let ssh = SshSession::connect(&credential).await?;
+    let deployer = deploy::deployer_for(node.protocol);
+    let uninstall_result = deployer.uninstall(&ssh, &node).await;
+    let close_result = ssh.close().await;
+
+    uninstall_result?;
+    close_result?;
+
+    state.storage.delete(&id)?;
+    Ok(())
+}
+
+async fn deploy_node_inner(
+    progress: &TauriProgressSink,
+    storage: &Storage,
+    params: DeployParams,
+) -> AppResult<NodeRecord> {
+    let resolved = resolve_deploy_target(storage, &params)?;
+    let mut effective_params = params.clone();
+    effective_params.vps_profile_id = Some(resolved.profile.id.clone());
+    effective_params.vps_name = resolved.profile.name.clone();
+    effective_params.credential = Some(resolved.credential.clone());
+
+    let ssh = SshSession::connect(&resolved.credential).await?;
+    let deployer = deploy::deployer_for(effective_params.protocol);
+    let install_result = deployer.install(&ssh, &effective_params, progress).await;
+    progress.log("部署动作执行完毕，正在关闭 SSH 连接...");
+    let close_result = ssh.close().await;
+    match &close_result {
+        Ok(()) => progress.log("SSH 连接已主动断开。"),
+        Err(err) => progress.log(&format!("SSH 关闭时出现警告（不影响节点运行）：{err}")),
+    }
+
+    let mut node = install_result?;
+    close_result?;
+
+    node.vps_id = resolved.profile.id.clone();
+    node.vps_name = resolved.profile.name.clone();
+
+    verify_public_reachability(progress, &node).await?;
+    if resolved.should_save_credential {
+        credentials::save(&resolved.profile.credential_key, &resolved.credential.auth)?;
+    }
+    storage.upsert_vps_profile(&resolved.profile)?;
+    storage.insert(&node)?;
+    cleanup_replaced_nodes(progress, storage, &node);
+
+    Ok(node)
+}
+
+fn resolve_connection_target(storage: &Storage, target: ConnectionTarget) -> AppResult<VpsCredential> {
+    match (target.vps_profile_id, target.credential) {
+        (_, Some(credential)) => Ok(credential),
+        (Some(profile_id), None) => {
+            let profile = storage.get_vps_profile(&profile_id)?;
+            let auth = load_saved_auth(&profile)?;
+            Ok(VpsCredential {
+                host: profile.host,
+                port: profile.ssh_port,
+                user: profile.ssh_user,
+                auth,
+            })
+        }
+        (None, None) => Err(AppError::Other(
+            "missing VPS credential or saved VPS profile".to_string(),
+        )),
+    }
+}
+
+fn resolve_deploy_target(storage: &Storage, params: &DeployParams) -> AppResult<ResolvedDeployTarget> {
+    let requested_name = params.vps_name.trim();
+
+    if let Some(profile_id) = &params.vps_profile_id {
+        let mut profile = storage.get_vps_profile(profile_id)?;
+        if !requested_name.is_empty() {
+            profile.name = requested_name.to_string();
+        }
+
+        let credential = match &params.credential {
+            Some(credential) => {
+                profile.host = credential.host.clone();
+                profile.ssh_port = credential.port;
+                profile.ssh_user = credential.user.clone();
+                credential.clone()
+            }
+            None => {
+                let auth = load_saved_auth(&profile)?;
+                VpsCredential {
+                    host: profile.host.clone(),
+                    port: profile.ssh_port,
+                    user: profile.ssh_user.clone(),
+                    auth,
+                }
+            }
+        };
+
+        return Ok(ResolvedDeployTarget {
+            profile,
+            credential,
+            should_save_credential: params.credential.is_some(),
+        });
+    }
+
+    let credential = params
+        .credential
+        .clone()
+        .ok_or_else(|| AppError::Other("missing VPS credential for deploy".to_string()))?;
+
+    let mut profile = if let Some(existing) = storage.find_vps_profile_by_connection(
+        &credential.host,
+        credential.port,
+        &credential.user,
+    )? {
+        existing
+    } else {
+        let profile_id = uuid::Uuid::new_v4().to_string();
+        VpsProfileRecord {
+            id: profile_id.clone(),
+            name: requested_name.to_string(),
+            host: credential.host.clone(),
+            ssh_port: credential.port,
+            ssh_user: credential.user.clone(),
+            credential_key: profile_id,
+            created_at: unix_now(),
+        }
+    };
+
+    profile.name = if requested_name.is_empty() {
+        profile.host.clone()
+    } else {
+        requested_name.to_string()
+    };
+    profile.host = credential.host.clone();
+    profile.ssh_port = credential.port;
+    profile.ssh_user = credential.user.clone();
+
+    Ok(ResolvedDeployTarget {
+        profile,
+        credential,
+        should_save_credential: true,
+    })
+}
+
+fn deploy_error_details(err: &AppError) -> (String, String) {
+    match err {
+        AppError::DeployStepFailed { step, message } => (step.clone(), message.clone()),
+        other => ("deploy".to_string(), other.to_string()),
+    }
+}
+
+async fn verify_public_reachability(
+    progress: &TauriProgressSink,
+    node: &NodeRecord,
+) -> AppResult<()> {
+    let port = protocol_port(node)?;
+
+    match node.protocol {
+        ProtocolId::VlessReality => {
+            progress.step("reachability", "public reachability");
+
+            let mut last_error = None;
+            for attempt in 1..=6 {
+                progress.log(&format!(
+                    "正在验证公网 TCP 连通性（第 {attempt}/6 次）：{}:{}",
+                    node.host, port
+                ));
+
+                match timeout(
+                    Duration::from_secs(3),
+                    TcpStream::connect((node.host.as_str(), port)),
+                )
+                .await
+                {
+                    Ok(Ok(stream)) => {
+                        drop(stream);
+                        progress.log("公网 TCP 连通性验证通过。");
+                        return Ok(());
+                    }
+                    Ok(Err(err)) => last_error = Some(err.to_string()),
+                    Err(_) => last_error = Some("connection timed out".to_string()),
+                }
+
+                if attempt < 6 {
+                    sleep(Duration::from_secs(2)).await;
+                }
+            }
+
+            Err(AppError::DeployStepFailed {
+                step: "reachability".to_string(),
+                message: format!(
+                    "public TCP connectivity to {}:{} failed after deploy: {}. The service was configured on the VPS, but it is not reachable from this machine. Check the cloud security group and confirm the node host is a public IP.",
+                    node.host,
+                    port,
+                    last_error.unwrap_or_else(|| "unknown error".to_string())
+                ),
+            })
+        }
+        ProtocolId::Hysteria2 => {
+            progress.log(&format!(
+                "已跳过 Hysteria2 的公网 UDP 主动探测；请确认云安全组已放行 UDP {}。",
+                port
+            ));
+            Ok(())
+        }
+    }
+}
+
+fn protocol_port(node: &NodeRecord) -> AppResult<u16> {
+    node.protocol_params
+        .get("port")
+        .and_then(|value| value.as_u64())
+        .and_then(|value| u16::try_from(value).ok())
+        .ok_or_else(|| AppError::Other("missing or invalid node port".to_string()))
+}
+
+fn cleanup_replaced_nodes(progress: &TauriProgressSink, storage: &Storage, node: &NodeRecord) {
+    let Ok(existing_nodes) = storage.list() else {
+        return;
+    };
+
+    let replaced_nodes: Vec<_> = existing_nodes
+        .into_iter()
+        .filter(|existing| {
+            existing.id != node.id
+                && existing.vps_id == node.vps_id
+                && existing.protocol == node.protocol
+                && existing.status == "active"
+        })
+        .collect();
+
+    if replaced_nodes.is_empty() {
+        return;
+    }
+
+    progress.log(&format!(
+        "检测到同一 VPS 下的旧 {} 节点记录，正在自动替换 {} 条。",
+        match node.protocol {
+            ProtocolId::VlessReality => "VLESS Reality",
+            ProtocolId::Hysteria2 => "Hysteria2",
+        },
+        replaced_nodes.len()
+    ));
+
+    for existing in replaced_nodes {
+        if let Err(err) = storage.delete(&existing.id) {
+            log::warn!("failed to delete replaced node {}: {}", existing.id, err);
+        }
+    }
+}
+
+fn unix_now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+fn load_saved_auth(profile: &VpsProfileRecord) -> AppResult<crate::ssh::AuthMethod> {
+    match credentials::load_optional(&profile.credential_key)? {
+        Some(auth) => Ok(auth),
+        None => Err(AppError::Other(format!(
+            "已保存的 VPS「{}」缺少系统安全存储中的登录凭据。请切换到“新建连接”重新输入一次 SSH 信息，程序会自动补回这条凭据。",
+            profile.name
+        ))),
+    }
+}

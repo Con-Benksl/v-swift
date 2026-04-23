@@ -1,0 +1,25 @@
+{
+  "productName": "V-Swift",
+  "identifier": "com.vswift.desktop",
+  "app": {
+    "windows": [{ "title": "V-Swift", "width": 900, "height": 700 }]
+  },
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

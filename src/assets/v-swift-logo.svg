@@ -1,0 +1,35 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="vswiftBg" x1="120" y1="120" x2="904" y2="904" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3FA8F4"/>
+      <stop offset="1" stop-color="#255BEE"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="1024" height="1024" rx="220" fill="url(#vswiftBg)"/>
+  <path
+    d="M392 212C463 212 519 242 571 285L754 436C806 479 806 545 754 588L571 739C519 782 463 812 392 812"
+    stroke="#FFFFFF"
+    stroke-width="84"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M322 389H442"
+    stroke="#FFFFFF"
+    stroke-width="50"
+    stroke-linecap="round"
+  />
+  <path
+    d="M266 515H468"
+    stroke="#FFFFFF"
+    stroke-width="52"
+    stroke-linecap="round"
+  />
+  <circle cx="510" cy="515" r="51" fill="#FFFFFF"/>
+  <path
+    d="M322 640H442"
+    stroke="#FFFFFF"
+    stroke-width="50"
+    stroke-linecap="round"
+  />
+</svg>

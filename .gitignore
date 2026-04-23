@@ -1,0 +1,74 @@
+# ---- Node / Frontend ----
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# ---- Rust / Tauri ----
+src-tauri/target/
+src-tauri/gen/
+src-tauri/WixTools/
+src-tauri/Cargo.lock.bak
+
+# ---- Build artifacts ----
+*.dmg
+*.app.tar.gz
+*.AppImage
+*.deb
+*.rpm
+*.msi
+
+# ---- Logs & runtime ----
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---- Secrets & local env ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+!src-tauri/scripts/*
+id_rsa*
+credentials.json
+secrets.json
+.claude/
+
+# ---- macOS ----
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# ---- Windows ----
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ---- Linux ----
+*~
+.fuse_hidden*
+.Trash-*
+
+# ---- IDE / Editor ----
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.shared.json
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+.history/
+.cursor/
+
+# ---- OS / misc temp ----
+/tmp/
+*.bak
+*.tmp
