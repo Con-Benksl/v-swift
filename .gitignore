@@ -72,3 +72,12 @@ $RECYCLE.BIN/
 /tmp/
 *.bak
 *.tmp
+
+# ---- claude-mem internal context ----
+AGENTS.md
+
+# ---- Unused Tauri scaffold icons (mobile/MS Store) ----
+src-tauri/icons/android/
+src-tauri/icons/ios/
+src-tauri/icons/Square*Logo.png
+src-tauri/icons/StoreLogo.png
