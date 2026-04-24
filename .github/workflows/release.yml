@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: "--target aarch64-apple-darwin"
+            label: macOS (Apple Silicon)
+          - platform: macos-13
+            args: "--target x86_64-apple-darwin"
+            label: macOS (Intel)
+          - platform: ubuntu-22.04
+            args: ""
+            label: Linux (x86_64)
+          - platform: windows-latest
+            args: ""
+            label: Windows (x86_64)
+
+    runs-on: ${{ matrix.platform }}
+    name: Build ${{ matrix.label }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || matrix.platform == 'macos-13' && 'x86_64-apple-darwin' || '' }}
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            build-essential \
+            curl \
+            wget \
+            file
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build & publish Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "V-Swift ${{ github.ref_name }}"
+          releaseBody: |
+            ## 安装方式
+
+            从下方 **Assets** 下载对应平台的安装包：
+
+            | 平台 | 文件 |
+            |---|---|
+            | macOS (Apple Silicon, M1/M2/M3) | `*_aarch64.dmg` |
+            | macOS (Intel) | `*_x64.dmg` |
+            | Windows (x86_64) | `*_x64-setup.exe` 或 `*_x64_en-US.msi` |
+            | Linux (Debian/Ubuntu) | `*_amd64.deb` |
+            | Linux (其他发行版) | `*_amd64.AppImage` |
+
+            > 本软件仅供学习研究用途。详见仓库 README 免责声明。
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}

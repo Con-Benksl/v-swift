@@ -19,6 +19,32 @@
 
 ---
 
+## 📥 安装
+
+### 普通用户：直接下载安装包
+
+前往 [**Releases 页面**](https://github.com/Con-Benksl/v-swift/releases) 下载对应平台的最新版本：
+
+| 平台 | 下载文件 | 安装方式 |
+|---|---|---|
+| **macOS**（M1/M2/M3 Apple Silicon） | `V-Swift_*_aarch64.dmg` | 双击 `.dmg` → 拖入 Applications |
+| **macOS**（Intel 芯片） | `V-Swift_*_x64.dmg` | 同上 |
+| **Windows** | `V-Swift_*_x64-setup.exe` | 双击运行安装向导 |
+| **Linux**（Debian / Ubuntu） | `v-swift_*_amd64.deb` | `sudo dpkg -i v-swift_*.deb` |
+| **Linux**（其他发行版） | `v-swift_*_amd64.AppImage` | `chmod +x` 后直接运行 |
+
+> **macOS 首次启动提示「无法验证开发者」？**
+> 应用未做 Apple 公证签名。在「系统设置 → 隐私与安全性」点击「仍要打开」即可，或在终端运行：
+> ```bash
+> xattr -cr /Applications/V-Swift.app
+> ```
+
+### 开发者：从源码编译
+
+见下方 [快速开始](#快速开始)。
+
+---
+
 ## 特性
 
 - **两种协议开箱即用**
