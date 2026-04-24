@@ -7,6 +7,8 @@ pub enum AppError {
     AuthFailed,
     #[error("network timeout")]
     NetworkTimeout,
+    #[error("ssh host key verification failed: {0}")]
+    SshHostKey(String),
     #[error("host unreachable: {0}")]
     HostUnreachable(String),
     #[error("permission denied")]

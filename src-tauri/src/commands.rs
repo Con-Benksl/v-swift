@@ -62,10 +62,7 @@ pub async fn test_connection(
 }
 
 #[tauri::command]
-pub async fn detect_os(
-    state: State<'_, AppState>,
-    target: ConnectionTarget,
-) -> AppResult<OsInfo> {
+pub async fn detect_os(state: State<'_, AppState>, target: ConnectionTarget) -> AppResult<OsInfo> {
     let credential = resolve_connection_target(&state.storage, target)?;
     let ssh = SshSession::connect(&credential).await?;
     let detect_result = deploy::detect_os(&ssh).await;
@@ -174,10 +171,7 @@ pub fn forget_orphan_vps_profiles(state: State<'_, AppState>) -> AppResult<u32> 
 }
 
 #[tauri::command]
-pub fn get_subscription(
-    state: State<'_, AppState>,
-    id: String,
-) -> AppResult<SubscriptionDto> {
+pub fn get_subscription(state: State<'_, AppState>, id: String) -> AppResult<SubscriptionDto> {
     let node = state.storage.get(&id)?;
     let subscription = subscription::build(&node)?;
 
@@ -238,18 +232,32 @@ async fn deploy_node_inner(
     node.vps_id = resolved.profile.id.clone();
     node.vps_name = resolved.profile.name.clone();
 
-    verify_public_reachability(progress, &node).await?;
     if resolved.should_save_credential {
         credentials::save(&resolved.profile.credential_key, &resolved.credential.auth)?;
     }
     storage.upsert_vps_profile(&resolved.profile)?;
     storage.insert(&node)?;
-    cleanup_replaced_nodes(progress, storage, &node);
+
+    let reachability_result = verify_public_reachability(progress, &node).await;
+    if let Err(err) = &reachability_result {
+        node.status = "unknown".to_string();
+        storage.update_node_status(&node.id, &node.status)?;
+        progress.log(&format!(
+            "公网连通性验证未通过，节点配置和凭据已保存，状态标记为 unknown：{err}"
+        ));
+    }
+
+    if reachability_result.is_ok() {
+        cleanup_replaced_nodes(progress, storage, &node);
+    }
 
     Ok(node)
 }
 
-fn resolve_connection_target(storage: &Storage, target: ConnectionTarget) -> AppResult<VpsCredential> {
+fn resolve_connection_target(
+    storage: &Storage,
+    target: ConnectionTarget,
+) -> AppResult<VpsCredential> {
     match (target.vps_profile_id, target.credential) {
         (_, Some(credential)) => Ok(credential),
         (Some(profile_id), None) => {
@@ -268,7 +276,10 @@ fn resolve_connection_target(storage: &Storage, target: ConnectionTarget) -> App
     }
 }
 
-fn resolve_deploy_target(storage: &Storage, params: &DeployParams) -> AppResult<ResolvedDeployTarget> {
+fn resolve_deploy_target(
+    storage: &Storage,
+    params: &DeployParams,
+) -> AppResult<ResolvedDeployTarget> {
     let requested_name = params.vps_name.trim();
 
     if let Some(profile_id) = &params.vps_profile_id {

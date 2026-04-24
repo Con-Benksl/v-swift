@@ -7,7 +7,8 @@ const SERVICE_NAME: &str = "V-Swift";
 const LEGACY_SERVICE_NAMES: &[&str] = &["vps-node-deployer"];
 
 pub fn save(node_id: &str, auth: &AuthMethod) -> AppResult<()> {
-    let json = serde_json::to_string(auth).map_err(|e| AppError::Keychain(e.to_string()))?;
+    let json =
+        serde_json::to_string(&auth.normalized()).map_err(|e| AppError::Keychain(e.to_string()))?;
     let entry = Entry::new(SERVICE_NAME, node_id).map_err(|e| AppError::Keychain(e.to_string()))?;
     entry
         .set_password(&json)
@@ -28,9 +29,9 @@ pub fn load_optional(node_id: &str) -> AppResult<Option<AuthMethod>> {
         let entry = Entry::new(service, node_id).map_err(|e| AppError::Keychain(e.to_string()))?;
         match entry.get_password() {
             Ok(json) => {
-                return serde_json::from_str(&json)
-                    .map(Some)
-                    .map_err(|e| AppError::Keychain(e.to_string()));
+                let auth = serde_json::from_str::<AuthMethod>(&json)
+                    .map_err(|e| AppError::Keychain(e.to_string()))?;
+                return Ok(Some(auth.normalized()));
             }
             Err(keyring::Error::NoEntry) => continue,
             Err(e) => return Err(AppError::Keychain(e.to_string())),

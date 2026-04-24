@@ -22,7 +22,8 @@ pub struct Storage {
 
 impl Storage {
     pub fn open(path: &Path) -> AppResult<Self> {
-        let conn = rusqlite::Connection::open(path).map_err(|e| AppError::Storage(e.to_string()))?;
+        let conn =
+            rusqlite::Connection::open(path).map_err(|e| AppError::Storage(e.to_string()))?;
         let storage = Self {
             conn: Mutex::new(conn),
         };
@@ -139,8 +140,8 @@ impl Storage {
     }
 
     pub fn insert(&self, node: &NodeRecord) -> AppResult<()> {
-        let protocol = serde_json::to_string(&node.protocol)
-            .map_err(|e| AppError::Storage(e.to_string()))?;
+        let protocol =
+            serde_json::to_string(&node.protocol).map_err(|e| AppError::Storage(e.to_string()))?;
         let protocol_params = serde_json::to_string(&node.protocol_params)
             .map_err(|e| AppError::Storage(e.to_string()))?;
         let conn = self
@@ -239,6 +240,19 @@ impl Storage {
             .map_err(|e| AppError::Storage(e.to_string()))?;
         conn.execute("DELETE FROM nodes WHERE id = ?1", [id])
             .map_err(|e| AppError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn update_node_status(&self, id: &str, status: &str) -> AppResult<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Storage(e.to_string()))?;
+        conn.execute(
+            "UPDATE nodes SET status = ?2 WHERE id = ?1",
+            rusqlite::params![id, status],
+        )
+        .map_err(|e| AppError::Storage(e.to_string()))?;
         Ok(())
     }
 
@@ -359,11 +373,18 @@ impl Storage {
         let mut profile_by_identity: HashMap<String, String> = HashMap::new();
 
         for node in legacy_nodes {
-            if node.vps_id.as_deref().is_some_and(|value| !value.trim().is_empty()) {
+            if node
+                .vps_id
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty())
+            {
                 continue;
             }
 
-            let identity = format!("{}\u{1f}{}\u{1f}{}", node.host, node.ssh_port, node.ssh_user);
+            let identity = format!(
+                "{}\u{1f}{}\u{1f}{}",
+                node.host, node.ssh_port, node.ssh_user
+            );
             let profile_id = if let Some(existing) = profile_by_identity.get(&identity) {
                 existing.clone()
             } else if let Some(existing) =
@@ -478,18 +499,10 @@ fn map_node_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<NodeRecord> {
         ssh_port: ssh_port as u16,
         ssh_user: row.get(6)?,
         protocol: serde_json::from_str(&protocol).map_err(|e| {
-            rusqlite::Error::FromSqlConversionFailure(
-                7,
-                rusqlite::types::Type::Text,
-                Box::new(e),
-            )
+            rusqlite::Error::FromSqlConversionFailure(7, rusqlite::types::Type::Text, Box::new(e))
         })?,
         protocol_params: serde_json::from_str(&protocol_params).map_err(|e| {
-            rusqlite::Error::FromSqlConversionFailure(
-                8,
-                rusqlite::types::Type::Text,
-                Box::new(e),
-            )
+            rusqlite::Error::FromSqlConversionFailure(8, rusqlite::types::Type::Text, Box::new(e))
         })?,
         status: row.get(9)?,
         created_at: normalize_timestamp(created_at),
@@ -576,6 +589,12 @@ mod tests {
         assert_eq!(loaded.vps_id, "vps-1");
         assert_eq!(loaded.vps_name, "Tokyo VPS");
         assert_eq!(loaded.created_at, 1_700_000_000_000);
+
+        storage
+            .update_node_status("node-1", "unknown")
+            .expect("status update should succeed");
+        let updated = storage.get("node-1").expect("get should succeed");
+        assert_eq!(updated.status, "unknown");
     }
 
     #[test]

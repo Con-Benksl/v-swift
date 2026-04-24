@@ -62,6 +62,9 @@ function mapConnectionError(error: unknown): string {
   if (kind === 'NetworkTimeout' || haystack.includes('NetworkTimeout')) {
     return '连接超时：服务器在 15 秒内没有响应（可能下线、端口被封或路由不通）。';
   }
+  if (kind === 'SshHostKey' || haystack.includes('SshHostKey')) {
+    return `SSH 主机密钥校验失败：${detail || '服务器身份和已信任记录不一致。'}`;
+  }
   if (kind && detail) return `${kind}: ${detail}`;
   return detail || kind || '连接失败';
 }
@@ -87,11 +90,20 @@ function baseProtocol(): ProtocolPickerValue {
 }
 
 function buildManualCredential(value: ConnectFormValue): VpsCredential {
+  const auth: VpsCredential['auth'] =
+    value.auth.kind === 'privateKey'
+      ? {
+          kind: 'privateKey',
+          key: value.auth.key,
+          ...(value.auth.passphrase?.trim() ? { passphrase: value.auth.passphrase } : {}),
+        }
+      : value.auth;
+
   return {
     host: value.host.trim(),
     port: value.port,
     user: value.user.trim(),
-    auth: value.auth,
+    auth,
   };
 }
 

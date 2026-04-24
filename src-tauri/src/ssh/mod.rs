@@ -5,6 +5,7 @@ use base64::Engine;
 use russh::client::{self, Handle};
 use russh::keys::key::PublicKey;
 use russh::ChannelMsg;
+use russh_keys::{known_host_keys, learn_known_hosts};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tokio::time::timeout;
@@ -14,8 +15,30 @@ use crate::error::{AppError, AppResult};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum AuthMethod {
-    Password { password: String },
-    PrivateKey { key: String, passphrase: Option<String> },
+    Password {
+        password: String,
+    },
+    PrivateKey {
+        key: String,
+        passphrase: Option<String>,
+    },
+}
+
+impl AuthMethod {
+    pub fn normalized(&self) -> Self {
+        match self {
+            Self::Password { password } => Self::Password {
+                password: password.clone(),
+            },
+            Self::PrivateKey { key, passphrase } => Self::PrivateKey {
+                key: key.clone(),
+                passphrase: passphrase
+                    .as_ref()
+                    .filter(|value| !value.trim().is_empty())
+                    .cloned(),
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,15 +59,30 @@ pub struct SshSession {
     handle: Arc<Mutex<Handle<Client>>>,
 }
 
-#[derive(Clone, Default)]
-struct Client;
+#[derive(Clone)]
+struct Client {
+    host: String,
+    port: u16,
+}
+
+impl Client {
+    fn new(host: &str, port: u16) -> Self {
+        Self {
+            host: host.to_string(),
+            port,
+        }
+    }
+}
 
 #[derive(Debug)]
-struct ClientError(russh::Error);
+enum ClientError {
+    Russh(russh::Error),
+    HostKey(String),
+}
 
 impl From<russh::Error> for ClientError {
     fn from(value: russh::Error) -> Self {
-        Self(value)
+        Self::Russh(value)
     }
 }
 
@@ -56,11 +94,47 @@ impl client::Handler for Client {
         &mut self,
         server_public_key: &PublicKey,
     ) -> Result<bool, Self::Error> {
-        log::warn!(
-            "Skipping SSH host key verification for server key: {:?}",
-            server_public_key.name()
-        );
-        Ok(true)
+        match known_host_keys(&self.host, self.port) {
+            Ok(known_keys) if known_keys.is_empty() => {
+                learn_known_hosts(&self.host, self.port, server_public_key).map_err(|err| {
+                    ClientError::HostKey(format!(
+                        "failed to trust SSH host key for {}:{}: {err}",
+                        self.host, self.port
+                    ))
+                })?;
+                log::info!(
+                    "Trusted new SSH host key for {}:{} ({})",
+                    self.host,
+                    self.port,
+                    server_public_key.name()
+                );
+                Ok(true)
+            }
+            Ok(known_keys) => {
+                if known_keys
+                    .iter()
+                    .any(|(_, recorded)| recorded == server_public_key)
+                {
+                    return Ok(true);
+                }
+
+                let lines = known_keys
+                    .iter()
+                    .map(|(line, _)| line.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                Err(ClientError::HostKey(format!(
+                    "SSH host key mismatch for {}:{}: known_hosts line(s) {} contain different key(s). Refusing to authenticate.",
+                    self.host,
+                    self.port,
+                    lines
+                )))
+            }
+            Err(err) => Err(ClientError::HostKey(format!(
+                "failed to verify SSH host key for {}:{}: {err}",
+                self.host, self.port
+            ))),
+        }
     }
 }
 
@@ -73,9 +147,10 @@ impl SshSession {
             config.keepalive_max = 5;
 
             let addr = format!("{}:{}", cred.host, cred.port);
-            let mut handle = client::connect(Arc::new(config), addr, Client)
-                .await
-                .map_err(map_connect_error)?;
+            let mut handle =
+                client::connect(Arc::new(config), addr, Client::new(&cred.host, cred.port))
+                    .await
+                    .map_err(map_connect_error)?;
 
             let auth_result = match &cred.auth {
                 AuthMethod::Password { password } => handle
@@ -83,8 +158,11 @@ impl SshSession {
                     .await
                     .map_err(map_russh_error)?,
                 AuthMethod::PrivateKey { key, passphrase } => {
+                    let passphrase = passphrase
+                        .as_deref()
+                        .filter(|value| !value.trim().is_empty());
                     let private_key =
-                        russh_keys::decode_secret_key(key, passphrase.as_deref()).map_err(|err| {
+                        russh_keys::decode_secret_key(key, passphrase).map_err(|err| {
                             AppError::Other(format!("failed to parse private key: {err}"))
                         })?;
                     handle
@@ -112,7 +190,10 @@ impl SshSession {
 
     pub async fn exec(&self, cmd: &str) -> AppResult<ExecOutput> {
         let handle = self.handle.lock().await;
-        let mut channel = handle.channel_open_session().await.map_err(map_russh_error)?;
+        let mut channel = handle
+            .channel_open_session()
+            .await
+            .map_err(map_russh_error)?;
         channel.exec(true, cmd).await.map_err(map_russh_error)?;
 
         let mut stdout = String::new();
@@ -144,7 +225,10 @@ impl SshSession {
         on_line: F,
     ) -> AppResult<i32> {
         let handle = self.handle.lock().await;
-        let mut channel = handle.channel_open_session().await.map_err(map_russh_error)?;
+        let mut channel = handle
+            .channel_open_session()
+            .await
+            .map_err(map_russh_error)?;
         channel.exec(true, cmd).await.map_err(map_russh_error)?;
 
         let mut stdout_buffer = String::new();
@@ -196,11 +280,7 @@ impl SshSession {
     pub async fn close(self) -> AppResult<()> {
         let handle = self.handle.lock().await;
         handle
-            .disconnect(
-                russh::Disconnect::ByApplication,
-                "session closed",
-                "en-US",
-            )
+            .disconnect(russh::Disconnect::ByApplication, "session closed", "en-US")
             .await
             .map_err(map_russh_error)
     }
@@ -229,8 +309,10 @@ impl Drop for SshSession {
 }
 
 fn map_connect_error(error: ClientError) -> AppError {
-    let message = error.0.to_string();
-    AppError::HostUnreachable(message)
+    match error {
+        ClientError::Russh(error) => AppError::HostUnreachable(error.to_string()),
+        ClientError::HostKey(message) => AppError::SshHostKey(message),
+    }
 }
 
 fn map_russh_error(error: russh::Error) -> AppError {
@@ -262,6 +344,22 @@ fn shell_single_quote(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::AuthMethod;
+
+    #[test]
+    fn test_blank_private_key_passphrase_is_absent() {
+        let auth = AuthMethod::PrivateKey {
+            key: "key".to_string(),
+            passphrase: Some("   ".to_string()),
+        }
+        .normalized();
+
+        match auth {
+            AuthMethod::PrivateKey { passphrase, .. } => assert!(passphrase.is_none()),
+            other => panic!("unexpected auth method: {other:?}"),
+        }
+    }
+
     #[test]
     fn test_parse_private_key() {
         let key = r#"-----BEGIN OPENSSH PRIVATE KEY-----
@@ -273,7 +371,8 @@ sjT0K9kFtK2FDDxdW+AtAAAAI2NvbmJlbmtzbEBCZW5rc2xNYWNCb29rLUFpci03LmxvY2
 FsAQI=
 -----END OPENSSH PRIVATE KEY-----"#;
 
-        let parsed = russh_keys::decode_secret_key(key, None);
+        let parsed =
+            russh_keys::decode_secret_key(key, Some("").filter(|value| !value.trim().is_empty()));
         assert!(parsed.is_ok(), "expected valid ed25519 private key");
     }
 }
