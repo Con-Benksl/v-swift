@@ -1,5 +1,18 @@
 # V-Swift
 
+> ⚠️ **免责声明 / Disclaimer**
+>
+> 本项目仅供**个人学习、技术研究与网络安全教学**用途，旨在帮助开发者理解 SSH 远程编排、Tauri 桌面应用架构、Rust 异步编程、QUIC / TLS 协议工程实现等技术原理。
+>
+> - 使用者应当自行确保所部署的 VPS 节点及其使用方式**符合所在国家、地区及服务器供应商的法律法规与服务条款**。
+> - **严禁**将本项目用于任何违反当地法律法规的用途，包括但不限于：未经授权访问网络、传播违法信息、干扰公共秩序、规避合法监管等。
+> - 本项目作者及贡献者**不对任何使用者的行为及由此产生的任何直接或间接后果承担任何法律责任**。
+> - 下载、克隆、编译或运行本项目代码即视为您已阅读、理解并同意上述声明。如不同意，请立即停止使用并删除相关文件。
+>
+> **This project is provided for educational and research purposes only. Users are solely responsible for compliance with all applicable laws and regulations in their jurisdiction. The authors assume no liability for misuse.**
+
+---
+
 一键部署 VPS 代理节点的桌面客户端 —— 通过 SSH 远程登录全新 Linux VPS，自动完成依赖安装、协议配置、防火墙加固，最终生成可直接导入客户端的订阅链接。
 
 基于 [Tauri 2](https://tauri.app/) + React + Rust 构建，单二进制分发，原生跨平台（macOS / Windows / Linux）。
@@ -91,4 +104,4 @@ npm run tauri:build
 
 ## License
 
-MIT
+MIT —— 但请注意：MIT 许可证仅授予您对本仓库**源代码**的使用、修改、再分发权利，**不构成对您实际部署或使用代理服务行为的任何法律授权或背书**。具体使用方式的合规性由使用者本人承担全部责任。详见文首免责声明。
