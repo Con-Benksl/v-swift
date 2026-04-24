@@ -245,6 +245,12 @@ async fn deploy_node_inner(
         progress.log(&format!(
             "公网连通性验证未通过，节点配置和凭据已保存，状态标记为 unknown：{err}"
         ));
+        let _ = progress.emit(crate::events::DeployEventPayload::Warning {
+            step: "reachability".to_string(),
+            message: format!(
+                "公网连通性验证未通过，节点已保存但标记为 unknown：{err}"
+            ),
+        });
     }
 
     if reachability_result.is_ok() {
@@ -408,11 +414,47 @@ async fn verify_public_reachability(
             })
         }
         ProtocolId::Hysteria2 => {
-            progress.log(&format!(
-                "已跳过 Hysteria2 的公网 UDP 主动探测；请确认云安全组已放行 UDP {}。",
-                port
-            ));
-            Ok(())
+            progress.step("reachability", "public reachability");
+
+            use tokio::net::UdpSocket;
+            let addr = format!("{}:{}", node.host, port);
+            match UdpSocket::bind("0.0.0.0:0").await {
+                Ok(sock) => {
+                    if let Err(err) = sock.connect(&addr).await {
+                        progress.log(&format!(
+                            "UDP probe bind/connect 失败（非致命）：{err}。请手动确认云安全组已放行 UDP {port}。"
+                        ));
+                        return Ok(());
+                    }
+                    let _ = sock.send(&[0u8; 4]).await;
+                    // If port is closed, we typically get ConnectionRefused on the next recv.
+                    // If open, Hysteria2 silently drops malformed packets, so recv will timeout — treat as OK.
+                    let mut buf = [0u8; 4];
+                    match timeout(Duration::from_millis(1500), sock.recv(&mut buf)).await {
+                        Ok(Err(err)) if err.kind() == std::io::ErrorKind::ConnectionRefused => {
+                            return Err(AppError::DeployStepFailed {
+                                step: "reachability".to_string(),
+                                message: format!(
+                                    "public UDP probe to {}:{} returned ConnectionRefused — the port is not reachable. Check the cloud security group and firewall.",
+                                    node.host, port
+                                ),
+                            });
+                        }
+                        _ => {
+                            progress.log(&format!(
+                                "UDP {port} 未收到拒绝信号，推测端口已放行（Hysteria2 对非法包静默丢弃，此为正常表现）。"
+                            ));
+                            return Ok(());
+                        }
+                    }
+                }
+                Err(err) => {
+                    progress.log(&format!(
+                        "跳过 Hysteria2 UDP 主动探测（bind 失败：{err}）；请确认云安全组已放行 UDP {port}。"
+                    ));
+                    return Ok(());
+                }
+            }
         }
     }
 }

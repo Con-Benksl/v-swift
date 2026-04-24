@@ -27,9 +27,7 @@ pub enum AuthMethod {
 impl AuthMethod {
     pub fn normalized(&self) -> Self {
         match self {
-            Self::Password { password } => Self::Password {
-                password: password.clone(),
-            },
+            Self::Password { .. } => self.clone(),
             Self::PrivateKey { key, passphrase } => Self::PrivateKey {
                 key: key.clone(),
                 passphrase: passphrase
@@ -257,6 +255,12 @@ impl SshSession {
         Ok(exit_code)
     }
 
+    /// Uploads a file to the remote host by piping base64-encoded content to `base64 -d`.
+    ///
+    /// Safety: the `content` bytes are always base64-encoded before interpolation,
+    /// and the resulting string contains only `A-Za-z0-9+/=` — no shell metacharacters.
+    /// The `remote_path` is shell-single-quoted. Do NOT change the encoding to anything
+    /// that may emit quote characters without also updating the command template.
     pub async fn upload(&self, remote_path: &str, content: &[u8], mode: u32) -> AppResult<()> {
         let encoded = base64::engine::general_purpose::STANDARD.encode(content);
         let remote_path = shell_single_quote(remote_path);
@@ -293,17 +297,24 @@ impl SshSession {
 impl Drop for SshSession {
     fn drop(&mut self) {
         let handle = self.handle.clone();
-        if let Ok(rt) = tokio::runtime::Handle::try_current() {
-            rt.spawn(async move {
-                let guard = handle.lock().await;
-                let _ = guard
-                    .disconnect(
-                        russh::Disconnect::ByApplication,
-                        "dropped without close()",
-                        "en-US",
-                    )
-                    .await;
-            });
+        match tokio::runtime::Handle::try_current() {
+            Ok(rt) => {
+                rt.spawn(async move {
+                    let guard = handle.lock().await;
+                    let _ = guard
+                        .disconnect(
+                            russh::Disconnect::ByApplication,
+                            "dropped without close()",
+                            "en-US",
+                        )
+                        .await;
+                });
+            }
+            Err(err) => {
+                log::debug!(
+                    "SshSession::drop: no tokio runtime available for background disconnect: {err}"
+                );
+            }
         }
     }
 }

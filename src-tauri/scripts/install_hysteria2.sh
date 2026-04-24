@@ -51,15 +51,19 @@ else
   echo "正在下载 Hysteria2 (${HY2_ARCH}) 来自 ${DOWNLOAD_URL}"
   TMP_FILE="$(mktemp)"
   DOWNLOADED=false
+  RETRY_DELAYS=(3 10 30)
   for attempt in 1 2 3; do
     echo "下载尝试 ${attempt}/3..."
     if download_with_heartbeat "${DOWNLOAD_URL}" "${TMP_FILE}"; then
       DOWNLOADED=true
       break
     fi
-    echo "下载失败，等待 3 秒后重试..."
-    rm -f "${TMP_FILE}"
-    sleep 3
+    if [[ ${attempt} -lt 3 ]]; then
+      delay="${RETRY_DELAYS[$((attempt - 1))]}"
+      echo "下载失败，等待 ${delay} 秒后重试..."
+      rm -f "${TMP_FILE}"
+      sleep "${delay}"
+    fi
   done
 
   if [[ "${DOWNLOADED}" != "true" ]]; then
@@ -70,9 +74,6 @@ else
   install -m 755 "${TMP_FILE}" "${INSTALL_BIN}"
   echo "Hysteria2 二进制文件已安装到 ${INSTALL_BIN}。"
 fi
-
-echo "正在创建 hysteria 系统用户（如已存在则忽略）..."
-useradd --system --no-create-home --shell /usr/sbin/nologin hysteria 2>/dev/null || true
 
 mkdir -p "${CONFIG_DIR}"
 

@@ -154,6 +154,8 @@ impl Storage {
                 id, vps_id, name, host, ssh_port, ssh_user, credential_key,
                 protocol, protocol_params, status, created_at
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            // NOTE: the `credential_key` column is deprecated; we now key credentials off vps_id via the
+            // vps_profiles table. Kept for schema compatibility; written as vps_id to avoid empty strings.
             rusqlite::params![
                 &node.id,
                 &node.vps_id,
@@ -261,7 +263,7 @@ impl Storage {
             .conn
             .lock()
             .map_err(|e| AppError::Storage(e.to_string()))?;
-        conn.execute("UPDATE nodes SET vps_id = '' WHERE vps_id = ?1", [id])
+        conn.execute("DELETE FROM nodes WHERE vps_id = ?1", [id])
             .map_err(|e| AppError::Storage(e.to_string()))?;
         conn.execute("DELETE FROM vps_profiles WHERE id = ?1", [id])
             .map_err(|e| AppError::Storage(e.to_string()))?;
@@ -595,6 +597,43 @@ mod tests {
             .expect("status update should succeed");
         let updated = storage.get("node-1").expect("get should succeed");
         assert_eq!(updated.status, "unknown");
+    }
+
+    #[test]
+    fn test_delete_vps_profile_cascades_nodes() {
+        let path = std::env::temp_dir().join(format!("test_{}.db", uuid::Uuid::new_v4()));
+        let _guard = FileCleanupGuard { path: path.clone() };
+
+        let storage = Storage::open(&path).expect("open should succeed");
+        storage
+            .upsert_vps_profile(&test_profile("vps-1", "Tokyo VPS"))
+            .expect("profile insert should succeed");
+        storage
+            .insert(&test_node("node-1", "vps-1", "Tokyo VPS", 1_700_000_000_000))
+            .expect("first insert should succeed");
+        storage
+            .insert(&test_node("node-2", "vps-1", "Tokyo VPS", 1_700_000_010_000))
+            .expect("second insert should succeed");
+
+        assert_eq!(
+            storage.list().expect("list should succeed").len(),
+            2,
+            "two nodes should exist before cascade delete"
+        );
+
+        storage
+            .delete_vps_profile("vps-1")
+            .expect("profile delete should succeed");
+
+        let remaining = storage.list().expect("list should succeed");
+        assert!(
+            remaining.is_empty(),
+            "nodes should be cascade-deleted with their VPS profile, got {remaining:?}"
+        );
+        assert!(
+            storage.get_vps_profile("vps-1").is_err(),
+            "VPS profile should no longer exist after delete"
+        );
     }
 
     #[test]

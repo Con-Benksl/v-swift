@@ -14,6 +14,11 @@ if ! [[ "${PORT}" =~ ^[0-9]+$ ]] || (( PORT < 1 || PORT > 65535 )); then
   exit 1
 fi
 
+if ! [[ "${SNI}" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$ ]]; then
+  echo "::error:: invalid_sni sni=${SNI}"
+  exit 1
+fi
+
 CONFIG_FILE="/etc/hysteria/config.yaml"
 CONFIG_DIR="/etc/hysteria"
 CERT_FILE="/etc/hysteria/server.crt"

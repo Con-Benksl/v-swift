@@ -51,15 +51,19 @@ else
   echo "正在下载 Xray (${ASSET}) 来自 ${DOWNLOAD_URL}"
   TMP_DIR="$(mktemp -d)"
   DOWNLOADED=false
+  RETRY_DELAYS=(3 10 30)
   for attempt in 1 2 3; do
     echo "下载尝试 ${attempt}/3..."
     if download_with_heartbeat "${DOWNLOAD_URL}" "${TMP_DIR}/${ASSET}"; then
       DOWNLOADED=true
       break
     fi
-    echo "下载失败，等待 3 秒后重试..."
-    rm -f "${TMP_DIR}/${ASSET}"
-    sleep 3
+    if [[ ${attempt} -lt 3 ]]; then
+      delay="${RETRY_DELAYS[$((attempt - 1))]}"
+      echo "下载失败，等待 ${delay} 秒后重试..."
+      rm -f "${TMP_DIR}/${ASSET}"
+      sleep "${delay}"
+    fi
   done
 
   if [[ "${DOWNLOADED}" != "true" ]]; then

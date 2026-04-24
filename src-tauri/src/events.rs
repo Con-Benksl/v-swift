@@ -15,6 +15,7 @@ pub enum DeployEventPayload {
     Log { line: String },
     Done { node: NodeRecord },
     Error { step: String, message: String },
+    Warning { step: String, message: String },
 }
 
 pub struct TauriProgressSink {

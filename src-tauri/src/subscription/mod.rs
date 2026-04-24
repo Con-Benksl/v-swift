@@ -23,30 +23,28 @@ pub fn build(node: &NodeRecord) -> AppResult<Subscription> {
 
 fn build_vless_reality_uri(node: &NodeRecord) -> AppResult<String> {
     let params = &node.protocol_params;
-    let uuid = required_string(params, "uuid")?;
-    let public_key = required_string(params, "public_key")?;
-    let short_id = required_string(params, "short_id")?;
+    let uuid = encode(required_string(params, "uuid")?);
+    let public_key = encode(required_string(params, "public_key")?);
+    let short_id = encode(required_string(params, "short_id")?);
     let port = required_u64(params, "port")?;
-    let sni = required_string(params, "sni")?;
-    let flow = optional_string(params, "flow").unwrap_or("xtls-rprx-vision");
-    let spider_x =
-        utf8_percent_encode(optional_string(params, "spider_x").unwrap_or("/"), NON_ALPHANUMERIC)
-            .to_string();
-    let name = utf8_percent_encode(&node.name, NON_ALPHANUMERIC).to_string();
+    let sni = encode(required_string(params, "sni")?);
+    let flow = encode(optional_string(params, "flow").unwrap_or("xtls-rprx-vision"));
+    let spider_x = encode(optional_string(params, "spider_x").unwrap_or("/"));
+    let name = encode(&node.name);
+    let host = encode(&node.host);
 
     Ok(format!(
-        "vless://{uuid}@{}:{port}?encryption=none&flow={flow}&security=reality&sni={sni}&fp=chrome&pbk={public_key}&sid={short_id}&spx={spider_x}&type=tcp#{name}",
-        node.host
+        "vless://{uuid}@{host}:{port}?encryption=none&flow={flow}&security=reality&sni={sni}&fp=chrome&pbk={public_key}&sid={short_id}&spx={spider_x}&type=tcp#{name}"
     ))
 }
 
 fn build_hysteria2_uri(node: &NodeRecord) -> AppResult<String> {
     let params = &node.protocol_params;
-    let password =
-        utf8_percent_encode(required_string(params, "password")?, NON_ALPHANUMERIC).to_string();
+    let password = encode(required_string(params, "password")?);
     let port = required_u64(params, "port")?;
-    let sni = required_string(params, "sni")?;
-    let name = utf8_percent_encode(&node.name, NON_ALPHANUMERIC).to_string();
+    let sni = encode(required_string(params, "sni")?);
+    let name = encode(&node.name);
+    let host = encode(&node.host);
     let insecure = if is_insecure_enabled(params) {
         "&insecure=1"
     } else {
@@ -54,8 +52,7 @@ fn build_hysteria2_uri(node: &NodeRecord) -> AppResult<String> {
     };
 
     Ok(format!(
-        "hy2://{password}@{}:{port}?sni={sni}{insecure}#{name}",
-        node.host
+        "hy2://{password}@{host}:{port}?sni={sni}{insecure}#{name}"
     ))
 }
 
@@ -84,6 +81,10 @@ fn is_insecure_enabled(params: &serde_json::Value) -> bool {
         Some(value) if value.as_bool() == Some(true) => true,
         _ => false,
     }
+}
+
+fn encode(value: &str) -> String {
+    utf8_percent_encode(value, NON_ALPHANUMERIC).to_string()
 }
 
 #[cfg(test)]
@@ -119,7 +120,7 @@ mod tests {
         let subscription = build(&node).expect("build should succeed");
         assert_eq!(
             subscription.uri,
-            "vless://123e4567-e89b-12d3-a456-426614174000@example.com:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=cdn.example.com&fp=chrome&pbk=pubkey123&sid=abcd&spx=%2F&type=tcp#My%20Node"
+            "vless://123e4567%2De89b%2D12d3%2Da456%2D426614174000@example%2Ecom:443?encryption=none&flow=xtls%2Drprx%2Dvision&security=reality&sni=cdn%2Eexample%2Ecom&fp=chrome&pbk=pubkey123&sid=abcd&spx=%2F&type=tcp#My%20Node"
         );
     }
 

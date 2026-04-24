@@ -174,6 +174,11 @@ pub(crate) async fn run_script(
         .map(|guard| guard.clone())
         .unwrap_or_default();
 
+    // best-effort cleanup of the remote temp script; ignore errors
+    let _ = ssh
+        .exec(&format!("rm -f {}", shell_single_quote(&remote_path)))
+        .await;
+
     if exit_code != 0 {
         let stderr_trimmed = stderr.trim();
         let message = if !stderr_trimmed.is_empty() {

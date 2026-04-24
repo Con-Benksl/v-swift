@@ -211,6 +211,9 @@ export default function DeployProgress({
   const logLines = events
     .filter((event): event is Extract<DeployEvent, { kind: 'log' }> => event.kind === 'log')
     .map((event) => event.line);
+  const warnings = events.filter(
+    (event): event is Extract<DeployEvent, { kind: 'warning' }> => event.kind === 'warning',
+  );
   const { downloadState, visibleLogLines } = summarizeLogs(logLines);
   const currentIndex = orderedSteps.indexOf(currentStep);
 
@@ -315,6 +318,25 @@ export default function DeployProgress({
               <p className="mt-3 text-xs text-blue-600">
                 下载心跳已折叠显示，不再逐行写入日志。
               </p>
+            </div>
+          ) : null}
+
+          {warnings.length > 0 ? (
+            <div className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-amber-700">
+              <p className="text-sm font-semibold text-amber-900">部署警告</p>
+              <ul className="mt-3 space-y-2 text-sm">
+                {warnings.map((warning, index) => (
+                  <li
+                    key={`${index}-${warning.step}`}
+                    className="rounded-2xl border border-amber-200 bg-white/60 px-3 py-2"
+                  >
+                    <span className="font-medium text-amber-900">
+                      [{stepLabels[warning.step] ?? warning.step}]
+                    </span>{' '}
+                    {warning.message}
+                  </li>
+                ))}
+              </ul>
             </div>
           ) : null}
 

@@ -63,4 +63,5 @@ export type DeployEvent =
   | { kind: 'step'; step: string; label: string }
   | { kind: 'log'; line: string }
   | { kind: 'done'; node: NodeRecord }
-  | { kind: 'error'; step: string; message: string };
+  | { kind: 'error'; step: string; message: string }
+  | { kind: 'warning'; step: string; message: string };

@@ -7,6 +7,22 @@ export interface ProtocolPickerValue {
   sni: string;
 }
 
+const RECOMMENDED_SNIS_VLESS = [
+  'www.bing.com',
+  'www.cloudflare.com',
+  'www.microsoft.com',
+  'addons.mozilla.org',
+  'www.apple.com',
+  'www.yahoo.com',
+] as const;
+
+const RECOMMENDED_SNIS_HY2 = [
+  'www.bing.com',
+  'www.apple.com',
+  'www.cloudflare.com',
+  'www.microsoft.com',
+] as const;
+
 interface ProtocolPickerProps {
   value: ProtocolPickerValue;
   onChange: (value: ProtocolPickerValue) => void;
@@ -141,7 +157,16 @@ export default function ProtocolPicker({ value, onChange }: ProtocolPickerProps)
                 value={value.sni}
                 onChange={(event) => onChange({ ...value, sni: event.target.value })}
                 placeholder="www.microsoft.com"
+                list="sni-suggestions"
               />
+              <datalist id="sni-suggestions">
+                {(value.protocol === 'vless-reality'
+                  ? RECOMMENDED_SNIS_VLESS
+                  : RECOMMENDED_SNIS_HY2
+                ).map((host) => (
+                  <option key={host} value={host} />
+                ))}
+              </datalist>
               <span className="mt-2 block text-xs text-slate-500">
                 仅 VLESS Reality 需要，建议使用常见站点域名。
               </span>

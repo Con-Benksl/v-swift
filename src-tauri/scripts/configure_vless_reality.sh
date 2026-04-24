@@ -14,6 +14,11 @@ if ! [[ "${PORT}" =~ ^[0-9]+$ ]] || (( PORT < 1024 || PORT > 65535 )); then
   exit 1
 fi
 
+if ! [[ "${SNI}" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$ ]]; then
+  echo "::error:: invalid_sni sni=${SNI}"
+  exit 1
+fi
+
 CONFIG_FILE="/usr/local/etc/xray/config.json"
 CONFIG_DIR="/usr/local/etc/xray"
 mkdir -p "${CONFIG_DIR}"
