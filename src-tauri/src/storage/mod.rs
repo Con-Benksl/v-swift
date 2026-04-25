@@ -321,9 +321,7 @@ impl Storage {
 
         drop(conn);
 
-        if version < 2 {
-            self.backfill_vps_profiles()?;
-        }
+        self.backfill_vps_profiles()?;
 
         Ok(())
     }
@@ -375,14 +373,6 @@ impl Storage {
         let mut profile_by_identity: HashMap<String, String> = HashMap::new();
 
         for node in legacy_nodes {
-            if node
-                .vps_id
-                .as_deref()
-                .is_some_and(|value| !value.trim().is_empty())
-            {
-                continue;
-            }
-
             let identity = format!(
                 "{}\u{1f}{}\u{1f}{}",
                 node.host, node.ssh_port, node.ssh_user
@@ -395,7 +385,13 @@ impl Storage {
                 profile_by_identity.insert(identity.clone(), existing.clone());
                 existing
             } else {
-                let new_id = uuid::Uuid::new_v4().to_string();
+                let new_id = node
+                    .vps_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
                 conn.execute(
                     "INSERT INTO vps_profiles (
                         id, name, host, ssh_port, ssh_user, credential_key, created_at
@@ -419,11 +415,13 @@ impl Storage {
                 new_id
             };
 
-            conn.execute(
-                "UPDATE nodes SET vps_id = ?2 WHERE id = ?1",
-                rusqlite::params![&node.id, &profile_id],
-            )
-            .map_err(|e| AppError::Storage(e.to_string()))?;
+            if node.vps_id.as_deref().map(str::trim) != Some(profile_id.as_str()) {
+                conn.execute(
+                    "UPDATE nodes SET vps_id = ?2 WHERE id = ?1",
+                    rusqlite::params![&node.id, &profile_id],
+                )
+                .map_err(|e| AppError::Storage(e.to_string()))?;
+            }
         }
 
         Ok(())
@@ -634,6 +632,64 @@ mod tests {
             storage.get_vps_profile("vps-1").is_err(),
             "VPS profile should no longer exist after delete"
         );
+    }
+
+    #[test]
+    fn test_open_repairs_version_2_nodes_missing_vps_profile() {
+        let path = std::env::temp_dir().join(format!("test_{}.db", uuid::Uuid::new_v4()));
+        let _guard = FileCleanupGuard { path: path.clone() };
+
+        {
+            let storage = Storage::open(&path).expect("initial open should create schema");
+            let conn = storage
+                .conn
+                .lock()
+                .expect("test connection lock should succeed");
+            conn.execute(
+                "INSERT INTO nodes (
+                    id, vps_id, name, host, ssh_port, ssh_user, credential_key,
+                    protocol, protocol_params, status, created_at
+                ) VALUES (?1, '', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                rusqlite::params![
+                    "legacy-node",
+                    "Legacy Node",
+                    "203.0.113.10",
+                    2222i64,
+                    "root",
+                    "legacy-credential-key",
+                    serde_json::to_string(&ProtocolId::VlessReality)
+                        .expect("protocol should serialize"),
+                    json!({
+                        "uuid": "123e4567-e89b-12d3-a456-426614174000",
+                        "public_key": "pub",
+                        "short_id": "abcd",
+                        "port": 443,
+                        "sni": "example.com"
+                    })
+                    .to_string(),
+                    "unknown",
+                    1_700_000_000_000i64,
+                ],
+            )
+            .expect("legacy node insert should succeed");
+        }
+
+        let reopened = Storage::open(&path).expect("reopen should repair orphan node");
+        let node = reopened.get("legacy-node").expect("node should load");
+
+        assert!(
+            !node.vps_id.trim().is_empty(),
+            "orphan legacy node should receive a VPS profile id"
+        );
+
+        let profile = reopened
+            .get_vps_profile(&node.vps_id)
+            .expect("repaired VPS profile should exist");
+        assert_eq!(profile.name, "203.0.113.10");
+        assert_eq!(profile.host, "203.0.113.10");
+        assert_eq!(profile.ssh_port, 2222);
+        assert_eq!(profile.ssh_user, "root");
+        assert_eq!(profile.credential_key, "legacy-credential-key");
     }
 
     #[test]

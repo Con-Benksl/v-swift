@@ -9,7 +9,7 @@
  *
  * This helper normalizes all of them and returns a human-readable Chinese string.
  */
-export function mapConnectionError(error: unknown): string {
+function normalizeIpcError(error: unknown): { kind: string; detail: string } {
   let kind = '';
   let detail = '';
 
@@ -36,6 +36,17 @@ export function mapConnectionError(error: unknown): string {
     }
   }
 
+  return { kind, detail };
+}
+
+export function extractIpcErrorMessage(error: unknown, fallback: string): string {
+  const { kind, detail } = normalizeIpcError(error);
+  if (kind && detail) return `${kind}: ${detail}`;
+  return detail || kind || fallback;
+}
+
+export function mapConnectionError(error: unknown): string {
+  const { kind, detail } = normalizeIpcError(error);
   const haystack = `${kind} ${detail}`;
   if (kind === 'AuthFailed' || haystack.includes('AuthFailed')) {
     return '认证失败，请检查用户名、密码或私钥。';

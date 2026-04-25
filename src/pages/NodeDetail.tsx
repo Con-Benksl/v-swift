@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import SubscriptionView from '../components/SubscriptionView';
 import { getNode, getSubscription, uninstallNode } from '../ipc';
+import { extractIpcErrorMessage } from '../ipc/errors';
 import { NodeRecord } from '../ipc/types';
 
 function normalizeTimestamp(timestamp: number) {
@@ -88,7 +89,7 @@ export default function NodeDetail() {
     void uninstallNode(id)
       .then(() => navigate('/'))
       .catch((err) => {
-        setError(err instanceof Error ? err.message : '卸载失败');
+        setError(extractIpcErrorMessage(err, '卸载失败'));
         setShowConfirm(false);
       })
       .finally(() => {
