@@ -90,6 +90,30 @@ Build outputs are written under `src-tauri/target/release/bundle/`.
 - The target system should use `systemd`.
 - Existing firewall rules should be reviewed before deployment, especially on production hosts.
 
+## Cloud Security Group Ports
+
+V-Swift configures basic firewall rules inside the VPS operating system, but it cannot automatically edit the security group or cloud firewall rules in providers such as AWS, Google Cloud, Azure, Alibaba Cloud, Tencent Cloud, Vultr, or DigitalOcean. Before deployment, open the required port in your cloud provider console. Otherwise, the app may finish installing the service while clients still cannot connect, or the connection may behave poorly.
+
+Steps:
+
+1. In V-Swift, confirm the protocol and port you are going to deploy.
+2. For VLESS-Reality, `TCP 443` is recommended by default. If 443 is already used by a website or another service, use `TCP 8443` or another free TCP port.
+3. For Hysteria2, open the exact `UDP` port entered in V-Swift.
+4. Sign in to your cloud provider console and find the security group, firewall, or network rules attached to the VPS instance.
+5. Add an inbound rule:
+   - Protocol: use `TCP` for VLESS-Reality and `UDP` for Hysteria2.
+   - Port: enter the node port from V-Swift, such as `443`, `8443`, or your custom port.
+   - Source: for normal personal use, `0.0.0.0/0` allows IPv4 clients; add `::/0` too if the server uses IPv6.
+   - Action: allow or accept the traffic.
+6. Save the rule and confirm it is attached to the exact VPS instance, region, and network you are deploying to.
+
+Additional notes:
+
+- V-Swift logs in over SSH, so your SSH port must also be open in the security group, such as the default `TCP 22` or your custom SSH port.
+- If you only want to allow your own fixed IP, use your public IP as the source. Be aware that mobile networks, home broadband, and ISP exits may change IPs and break access later.
+- Cloud security groups and the VPS operating-system firewall are separate layers. V-Swift handles the basic OS-level rule, but you still need to confirm the cloud-level rule manually.
+- If deployment finishes but the app reports that the public port is unreachable, check the port number, TCP/UDP selection, security group binding, instance region, and any extra provider firewall policy first.
+
 ## Security and Privacy
 
 - SSH credentials are not committed to the repository and are not stored in plaintext project files.
