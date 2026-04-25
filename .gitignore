@@ -76,6 +76,9 @@ $RECYCLE.BIN/
 # ---- claude-mem internal context ----
 AGENTS.md
 
+# ---- Local analysis tooling ----
+.code-review-graph/
+
 # ---- Unused Tauri scaffold icons (mobile/MS Store) ----
 src-tauri/icons/android/
 src-tauri/icons/ios/
