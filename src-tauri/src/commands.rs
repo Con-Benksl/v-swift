@@ -11,6 +11,7 @@ use crate::deploy::{
 };
 use crate::error::{AppError, AppResult};
 use crate::events::{DeployEventPayload, TauriProgressSink};
+use crate::remote_subscription;
 use crate::ssh::{SshSession, VpsCredential};
 use crate::storage::{Storage, VpsProfileRecord};
 use crate::subscription;
@@ -31,6 +32,15 @@ pub struct ConnectionTarget {
 pub struct SubscriptionDto {
     pub uri: String,
     pub qr_svg: String,
+    pub managed_uri: Option<String>,
+    pub managed_qr_svg: Option<String>,
+}
+
+struct SilentProgress;
+
+impl ProgressSink for SilentProgress {
+    fn step(&self, _step: &str, _label: &str) {}
+    fn log(&self, _line: &str) {}
 }
 
 struct ResolvedDeployTarget {
@@ -174,10 +184,17 @@ pub fn forget_orphan_vps_profiles(state: State<'_, AppState>) -> AppResult<u32> 
 pub fn get_subscription(state: State<'_, AppState>, id: String) -> AppResult<SubscriptionDto> {
     let node = state.storage.get(&id)?;
     let subscription = subscription::build(&node)?;
+    let managed = remote_subscription::extract_managed_subscription(&node);
+    let managed_qr_svg = managed
+        .as_ref()
+        .map(|item| subscription::qr_svg_for_uri(&item.url))
+        .transpose()?;
 
     Ok(SubscriptionDto {
         uri: subscription.uri,
         qr_svg: subscription.qr_svg,
+        managed_uri: managed.map(|item| item.url),
+        managed_qr_svg,
     })
 }
 
@@ -196,12 +213,44 @@ pub async fn uninstall_node(state: State<'_, AppState>, id: String) -> AppResult
     let ssh = SshSession::connect(&credential).await?;
     let deployer = deploy::deployer_for(node.protocol);
     let uninstall_result = deployer.uninstall(&ssh, &node).await;
-    let close_result = ssh.close().await;
-
-    uninstall_result?;
-    close_result?;
+    if let Err(err) = uninstall_result {
+        let close_result = ssh.close().await;
+        if let Err(close_err) = close_result {
+            log::warn!(
+                "uninstall_node: SSH close failed after uninstall error for {}: {}",
+                node.id,
+                close_err
+            );
+        }
+        return Err(err);
+    }
 
     state.storage.delete(&id)?;
+
+    let remaining_nodes = active_nodes_for_vps(&state.storage, &node.vps_id)?;
+    let subscription_result = if remaining_nodes.is_empty() {
+        remote_subscription::remove_from_vps(&ssh, &SilentProgress).await
+    } else {
+        refresh_managed_subscription(
+            &SilentProgress,
+            &state.storage,
+            &ssh,
+            &node.vps_id,
+            &node.host,
+        )
+        .await
+        .map(|_| ())
+    };
+    if let Err(err) = subscription_result {
+        log::warn!(
+            "uninstall_node: node {} was removed, but managed subscription refresh failed: {}",
+            node.id,
+            err
+        );
+    }
+
+    let close_result = ssh.close().await;
+    close_result?;
     Ok(())
 }
 
@@ -219,15 +268,18 @@ async fn deploy_node_inner(
     let ssh = SshSession::connect(&resolved.credential).await?;
     let deployer = deploy::deployer_for(effective_params.protocol);
     let install_result = deployer.install(&ssh, &effective_params, progress).await;
-    progress.log("部署动作执行完毕，正在关闭 SSH 连接...");
-    let close_result = ssh.close().await;
-    match &close_result {
-        Ok(()) => progress.log("SSH 连接已主动断开。"),
-        Err(err) => progress.log(&format!("SSH 关闭时出现警告（不影响节点运行）：{err}")),
-    }
 
-    let mut node = install_result?;
-    close_result?;
+    let mut node = match install_result {
+        Ok(node) => node,
+        Err(err) => {
+            progress.log("部署失败，正在关闭 SSH 连接...");
+            let close_result = ssh.close().await;
+            if let Err(close_err) = close_result {
+                progress.log(&format!("SSH 关闭时出现警告：{close_err}"));
+            }
+            return Err(err);
+        }
+    };
 
     node.vps_id = resolved.profile.id.clone();
     node.vps_name = resolved.profile.name.clone();
@@ -255,7 +307,32 @@ async fn deploy_node_inner(
 
     if reachability_result.is_ok() {
         cleanup_replaced_nodes(progress, storage, &node);
+
+        match refresh_managed_subscription(progress, storage, &ssh, &node.vps_id, &node.host).await
+        {
+            Ok(Some(managed)) => {
+                remote_subscription::apply_managed_subscription(&mut node, &managed);
+            }
+            Ok(None) => {}
+            Err(err) => {
+                progress.log(&format!(
+                    "远程多节点订阅服务安装失败，直接节点仍可使用：{err}"
+                ));
+                let _ = progress.emit(crate::events::DeployEventPayload::Warning {
+                    step: "subscription".to_string(),
+                    message: format!("远程多节点订阅服务安装失败：{err}"),
+                });
+            }
+        }
     }
+
+    progress.log("部署动作执行完毕，正在关闭 SSH 连接...");
+    let close_result = ssh.close().await;
+    match &close_result {
+        Ok(()) => progress.log("SSH 连接已主动断开。"),
+        Err(err) => progress.log(&format!("SSH 关闭时出现警告（不影响节点运行）：{err}")),
+    }
+    close_result?;
 
     Ok(node)
 }
@@ -465,6 +542,36 @@ fn protocol_port(node: &NodeRecord) -> AppResult<u16> {
         .and_then(|value| value.as_u64())
         .and_then(|value| u16::try_from(value).ok())
         .ok_or_else(|| AppError::Other("missing or invalid node port".to_string()))
+}
+
+fn active_nodes_for_vps(storage: &Storage, vps_id: &str) -> AppResult<Vec<NodeRecord>> {
+    Ok(storage
+        .list()?
+        .into_iter()
+        .filter(|node| node.vps_id == vps_id && node.status == "active")
+        .collect())
+}
+
+async fn refresh_managed_subscription(
+    progress: &dyn ProgressSink,
+    storage: &Storage,
+    ssh: &SshSession,
+    vps_id: &str,
+    host: &str,
+) -> AppResult<Option<remote_subscription::ManagedSubscription>> {
+    let mut nodes = active_nodes_for_vps(storage, vps_id)?;
+    if nodes.is_empty() {
+        remote_subscription::remove_from_vps(ssh, progress).await?;
+        return Ok(None);
+    }
+
+    let managed = remote_subscription::install_for_nodes(ssh, host, &nodes, progress).await?;
+    for node in &mut nodes {
+        remote_subscription::apply_managed_subscription(node, &managed);
+        storage.update_node_protocol_params(&node.id, &node.protocol_params)?;
+    }
+
+    Ok(Some(managed))
 }
 
 fn cleanup_replaced_nodes(progress: &TauriProgressSink, storage: &Storage, node: &NodeRecord) {

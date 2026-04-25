@@ -21,10 +21,14 @@ pub fn build(node: &NodeRecord) -> AppResult<Subscription> {
         ProtocolId::Hysteria2 => build_hysteria2_uri(node)?,
     };
 
-    let code = QrCode::new(uri.as_bytes()).map_err(|e| AppError::Other(e.to_string()))?;
-    let qr_svg = code.render::<Color>().min_dimensions(256, 256).build();
+    let qr_svg = qr_svg_for_uri(&uri)?;
 
     Ok(Subscription { uri, qr_svg })
+}
+
+pub fn qr_svg_for_uri(uri: &str) -> AppResult<String> {
+    let code = QrCode::new(uri.as_bytes()).map_err(|e| AppError::Other(e.to_string()))?;
+    Ok(code.render::<Color>().min_dimensions(256, 256).build())
 }
 
 fn build_vless_reality_uri(node: &NodeRecord) -> AppResult<String> {

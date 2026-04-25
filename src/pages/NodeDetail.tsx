@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import SubscriptionView from '../components/SubscriptionView';
 import { getNode, getSubscription, uninstallNode } from '../ipc';
 import { extractIpcErrorMessage } from '../ipc/errors';
-import { NodeRecord } from '../ipc/types';
+import { NodeRecord, SubscriptionResult } from '../ipc/types';
 
 function normalizeTimestamp(timestamp: number) {
   return timestamp < 1_000_000_000_000 ? timestamp * 1000 : timestamp;
@@ -38,7 +38,7 @@ export default function NodeDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [node, setNode] = useState<NodeRecord | null>(null);
-  const [subscription, setSubscription] = useState<{ uri: string; qrSvg: string } | null>(null);
+  const [subscription, setSubscription] = useState<SubscriptionResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
@@ -173,7 +173,13 @@ export default function NodeDetail() {
             {error}
           </div>
         ) : node && subscription ? (
-          <SubscriptionView node={node} uri={subscription.uri} qrSvg={subscription.qrSvg} />
+          <SubscriptionView
+            node={node}
+            uri={subscription.uri}
+            qrSvg={subscription.qrSvg}
+            managedUri={subscription.managedUri}
+            managedQrSvg={subscription.managedQrSvg}
+          />
         ) : null}
       </div>
 

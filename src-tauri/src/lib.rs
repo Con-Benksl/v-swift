@@ -5,6 +5,7 @@ pub mod deploy;
 pub mod credentials;
 pub mod storage;
 pub mod subscription;
+pub mod remote_subscription;
 pub mod scripts;
 pub mod commands;
 pub mod events;

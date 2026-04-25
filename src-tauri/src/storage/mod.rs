@@ -258,6 +258,25 @@ impl Storage {
         Ok(())
     }
 
+    pub fn update_node_protocol_params(
+        &self,
+        id: &str,
+        protocol_params: &serde_json::Value,
+    ) -> AppResult<()> {
+        let protocol_params = serde_json::to_string(protocol_params)
+            .map_err(|e| AppError::Storage(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Storage(e.to_string()))?;
+        conn.execute(
+            "UPDATE nodes SET protocol_params = ?2 WHERE id = ?1",
+            rusqlite::params![id, protocol_params],
+        )
+        .map_err(|e| AppError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
     pub fn delete_vps_profile(&self, id: &str) -> AppResult<()> {
         let conn = self
             .conn
@@ -713,5 +732,40 @@ mod tests {
         assert_eq!(nodes.len(), 2);
         assert_eq!(nodes[0].id, "newer");
         assert_eq!(nodes[1].id, "older");
+    }
+
+    #[test]
+    fn test_update_node_protocol_params() {
+        let path = std::env::temp_dir().join(format!("test_{}.db", uuid::Uuid::new_v4()));
+        let _guard = FileCleanupGuard { path: path.clone() };
+
+        let storage = Storage::open(&path).expect("open should succeed");
+        storage
+            .upsert_vps_profile(&test_profile("vps-1", "Tokyo VPS"))
+            .expect("profile insert should succeed");
+        storage
+            .insert(&test_node("node-1", "vps-1", "Tokyo VPS", 1_700_000_000_000))
+            .expect("insert should succeed");
+
+        let updated_params = json!({
+            "uuid": "123e4567-e89b-12d3-a456-426614174000",
+            "public_key": "pub",
+            "short_id": "abcd",
+            "port": 443,
+            "sni": "example.com",
+            "managed_subscription": {
+                "url": "http://203.0.113.10:18080/sub.yaml?token=test-token",
+                "port": 18080,
+                "token": "test-token",
+                "updated_at": 1_700_000_010_000i64
+            }
+        });
+
+        storage
+            .update_node_protocol_params("node-1", &updated_params)
+            .expect("protocol params update should succeed");
+
+        let loaded = storage.get("node-1").expect("node should load");
+        assert_eq!(loaded.protocol_params, updated_params);
     }
 }

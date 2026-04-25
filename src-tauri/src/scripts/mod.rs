@@ -7,3 +7,5 @@ pub const CONFIGURE_HYSTERIA2: &str = include_str!("../../scripts/configure_hyst
 pub const SETUP_FIREWALL: &str = include_str!("../../scripts/setup_firewall.sh");
 pub const UNINSTALL_XRAY: &str = include_str!("../../scripts/uninstall_xray.sh");
 pub const UNINSTALL_HYSTERIA2: &str = include_str!("../../scripts/uninstall_hysteria2.sh");
+pub const SUBSCRIPTION_SERVER_PY: &str = include_str!("../../scripts/subscription_server.py");
+pub const SETUP_SUBSCRIPTION_SERVICE: &str = include_str!("../../scripts/setup_subscription_service.sh");

@@ -6,6 +6,7 @@ import {
   DeployParams,
   NodeRecord,
   OsInfo,
+  SubscriptionResult,
   VpsProfileSummary,
 } from './types';
 
@@ -44,8 +45,8 @@ export async function getNode(id: string): Promise<NodeRecord> {
   return invoke<NodeRecord>('get_node', { id });
 }
 
-export async function getSubscription(id: string): Promise<{ uri: string; qrSvg: string }> {
-  return invoke<{ uri: string; qrSvg: string }>('get_subscription', { id });
+export async function getSubscription(id: string): Promise<SubscriptionResult> {
+  return invoke<SubscriptionResult>('get_subscription', { id });
 }
 
 export async function uninstallNode(id: string): Promise<void> {

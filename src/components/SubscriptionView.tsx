@@ -5,6 +5,8 @@ interface SubscriptionViewProps {
   node: NodeRecord;
   uri: string;
   qrSvg: string;
+  managedUri?: string;
+  managedQrSvg?: string;
 }
 
 const importLinks: Array<{
@@ -33,7 +35,13 @@ function formatProtocol(protocol: NodeRecord['protocol']) {
   return protocol === 'vless-reality' ? 'VLESS Reality' : 'Hysteria 2';
 }
 
-export default function SubscriptionView({ node, uri, qrSvg }: SubscriptionViewProps) {
+export default function SubscriptionView({
+  node,
+  uri,
+  qrSvg,
+  managedUri,
+  managedQrSvg,
+}: SubscriptionViewProps) {
   const [toast, setToast] = useState('');
 
   useEffect(() => {
@@ -45,10 +53,10 @@ export default function SubscriptionView({ node, uri, qrSvg }: SubscriptionViewP
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const copyUri = async () => {
+  const copyUri = async (value: string, successMessage: string) => {
     try {
-      await navigator.clipboard.writeText(uri);
-      setToast('订阅 URI 已复制');
+      await navigator.clipboard.writeText(value);
+      setToast(successMessage);
     } catch {
       setToast('复制失败，请手动复制');
     }
@@ -104,7 +112,7 @@ export default function SubscriptionView({ node, uri, qrSvg }: SubscriptionViewP
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                onClick={copyUri}
+                onClick={() => copyUri(uri, '订阅 URI 已复制')}
                 className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-500"
               >
                 复制 URI
@@ -116,18 +124,63 @@ export default function SubscriptionView({ node, uri, qrSvg }: SubscriptionViewP
           <div className="rounded-3xl border border-slate-200 bg-white p-4">
             <p className="text-sm font-medium text-slate-700">一键导入客户端</p>
             <div className="mt-4 flex flex-wrap gap-3">
-              {importLinks.map((item) => (
-                <button
-                  key={item.label}
-                  type="button"
-                  onClick={() => window.open(item.buildUrl(uri), '_self')}
-                  className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
-                >
-                  导入 {item.label}
-                </button>
-              ))}
+              {importLinks
+                .filter((item) => !managedUri || item.label !== 'Clash')
+                .map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() => window.open(item.buildUrl(uri), '_self')}
+                    className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+                  >
+                    导入 {item.label}
+                  </button>
+                ))}
             </div>
           </div>
+
+          {managedUri ? (
+            <div className="rounded-3xl border border-blue-100 bg-blue-50/70 p-4">
+              <div className="flex flex-col gap-4 lg:flex-row">
+                {managedQrSvg ? (
+                  <div
+                    className="flex h-32 w-32 shrink-0 items-center justify-center rounded-2xl bg-white p-3 shadow-inner shadow-blue-100"
+                    dangerouslySetInnerHTML={{ __html: managedQrSvg }}
+                  />
+                ) : null}
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-slate-800">远程多节点订阅</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    适合 Clash/Mihomo 订阅导入，客户端可显示服务端返回的用量头。
+                  </p>
+                  <div className="mt-3 break-all rounded-2xl bg-white p-4 font-mono text-xs leading-6 text-slate-700">
+                    {managedUri}
+                  </div>
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => copyUri(managedUri, '远程订阅链接已复制')}
+                      className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-500"
+                    >
+                      复制远程订阅
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        window.open(
+                          `clash://install-config?url=${encodeURIComponent(managedUri)}`,
+                          '_self',
+                        )
+                      }
+                      className="rounded-2xl border border-blue-200 bg-white px-4 py-2 text-sm font-medium text-blue-700 transition hover:border-blue-300 hover:bg-blue-100"
+                    >
+                      导入 Clash/Mihomo
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </section>

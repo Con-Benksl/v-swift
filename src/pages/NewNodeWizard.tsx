@@ -12,6 +12,7 @@ import {
   DeployParams,
   NodeRecord,
   OsInfo,
+  SubscriptionResult,
   VpsCredential,
   VpsProfileSummary,
 } from '../ipc/types';
@@ -91,7 +92,7 @@ export default function NewNodeWizard() {
   const [errorMsg, setErrorMsg] = useState('');
   const [deployAttempt, setDeployAttempt] = useState(0);
   const [node, setNode] = useState<NodeRecord | null>(null);
-  const [subscription, setSubscription] = useState<{ uri: string; qrSvg: string } | null>(null);
+  const [subscription, setSubscription] = useState<SubscriptionResult | null>(null);
   const [subscriptionLoading, setSubscriptionLoading] = useState(false);
   const [subscriptionError, setSubscriptionError] = useState('');
 
@@ -425,7 +426,13 @@ export default function NewNodeWizard() {
 
           {step === 3 && node && subscription ? (
             <div className="space-y-6">
-              <SubscriptionView node={node} uri={subscription.uri} qrSvg={subscription.qrSvg} />
+              <SubscriptionView
+                node={node}
+                uri={subscription.uri}
+                qrSvg={subscription.qrSvg}
+                managedUri={subscription.managedUri}
+                managedQrSvg={subscription.managedQrSvg}
+              />
               <div className="flex justify-end">
                 <button
                   type="button"

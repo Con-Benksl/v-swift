@@ -48,6 +48,13 @@ export interface NodeRecord {
   createdAt: number;
 }
 
+export interface SubscriptionResult {
+  uri: string;
+  qrSvg: string;
+  managedUri?: string;
+  managedQrSvg?: string;
+}
+
 export interface VpsProfileSummary {
   id: string;
   name: string;

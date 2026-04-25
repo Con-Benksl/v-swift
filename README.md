@@ -28,6 +28,7 @@ Current scope:
 - **Live progress events**: the Rust backend streams deployment logs to the React interface through Tauri events.
 - **Credential storage**: SSH password or private-key authentication data is saved through macOS Keychain, Windows Credential Manager, or Linux Secret Service via `keyring`.
 - **Local node management**: deployed nodes can be listed, inspected, copied as subscription links, and removed.
+- **Managed multi-node subscription**: install a lightweight VPS-side subscription service for Clash/Mihomo and return usage headers backed by `vnstat`.
 
 ## Install
 
@@ -99,13 +100,19 @@ Steps:
 1. In V-Swift, confirm the protocol and port you are going to deploy.
 2. For VLESS-Reality, `TCP 443` is recommended by default. If 443 is already used by a website or another service, use `TCP 8443` or another free TCP port.
 3. For Hysteria2, open the exact `UDP` port entered in V-Swift.
-4. Sign in to your cloud provider console and find the security group, firewall, or network rules attached to the VPS instance.
-5. Add an inbound rule:
+4. V-Swift also installs a managed multi-node subscription service, which requires `TCP 18080` by default.
+5. Sign in to your cloud provider console and find the security group, firewall, or network rules attached to the VPS instance.
+6. Add an inbound rule:
    - Protocol: use `TCP` for VLESS-Reality and `UDP` for Hysteria2.
    - Port: enter the node port from V-Swift, such as `443`, `8443`, or your custom port.
    - Source: for normal personal use, `0.0.0.0/0` allows IPv4 clients; add `::/0` too if the server uses IPv6.
    - Action: allow or accept the traffic.
-6. Save the rule and confirm it is attached to the exact VPS instance, region, and network you are deploying to.
+7. Add another inbound rule for the managed subscription service:
+   - Protocol: `TCP`
+   - Port: `18080`
+   - Source: for normal personal use, `0.0.0.0/0`; add `::/0` too if the server uses IPv6.
+   - Action: allow or accept the traffic.
+8. Save the rule and confirm it is attached to the exact VPS instance, region, and network you are deploying to.
 
 Additional notes:
 
