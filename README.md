@@ -1,133 +1,137 @@
 # V-Swift
 
-> ⚠️ **免责声明 / Disclaimer**
->
-> 本项目仅供**个人学习、技术研究与网络安全教学**用途，旨在帮助开发者理解 SSH 远程编排、Tauri 桌面应用架构、Rust 异步编程、QUIC / TLS 协议工程实现等技术原理。
->
-> - 使用者应当自行确保所部署的 VPS 节点及其使用方式**符合所在国家、地区及服务器供应商的法律法规与服务条款**。
-> - **严禁**将本项目用于任何违反当地法律法规的用途，包括但不限于：未经授权访问网络、传播违法信息、干扰公共秩序、规避合法监管等。
-> - 本项目作者及贡献者**不对任何使用者的行为及由此产生的任何直接或间接后果承担任何法律责任**。
-> - 下载、克隆、编译或运行本项目代码即视为您已阅读、理解并同意上述声明。如不同意，请立即停止使用并删除相关文件。
->
-> **This project is provided for educational and research purposes only. Users are solely responsible for compliance with all applicable laws and regulations in their jurisdiction. The authors assume no liability for misuse.**
+[English](README.md) | [简体中文](README.zh-CN.md)
 
----
+V-Swift is a desktop VPS node deployer built with Tauri, React, and Rust. It connects to a fresh Linux VPS over SSH, installs the required runtime, configures either VLESS-Reality or Hysteria2, applies basic firewall protection, and generates a subscription link that can be imported into compatible clients.
 
-一键部署 VPS 代理节点的桌面客户端 —— 通过 SSH 远程登录全新 Linux VPS，自动完成依赖安装、协议配置、防火墙加固，最终生成可直接导入客户端的订阅链接。
+The project is designed for personal learning, technical research, and authorized infrastructure administration. You are responsible for ensuring that any server you operate and any resulting network usage comply with local laws, provider terms, and organizational policies.
 
-基于 [Tauri 2](https://tauri.app/) + React + Rust 构建，单二进制分发，原生跨平台（macOS / Windows / Linux）。
+## Project Scope
 
----
+V-Swift is not a general-purpose proxy client. It does not route traffic on your local machine. Its job is to automate repeatable server-side deployment tasks and keep the node metadata available in a small desktop app.
 
-## 📥 安装
+Current scope:
 
-### 普通用户：直接下载安装包
+- Deploy VLESS-Reality nodes backed by Xray-core
+- Deploy Hysteria2 nodes backed by QUIC/TLS
+- Connect to VPS hosts through SSH
+- Store SSH credentials through the operating system credential store
+- Show real-time deployment progress from the Rust backend
+- Save node records and generated subscription links locally
+- Uninstall previously deployed protocol services from the target VPS
 
-前往 [**Releases 页面**](https://github.com/Con-Benksl/v-swift/releases) 下载对应平台的最新版本：
+## Features
 
-| 平台 | 下载文件 | 安装方式 |
-|---|---|---|
-| **macOS**（M1/M2/M3 Apple Silicon） | `V-Swift_*_aarch64.dmg` | 双击 `.dmg` → 拖入 Applications |
-| **macOS**（Intel 芯片） | `V-Swift_*_x64.dmg` | 同上 |
-| **Windows** | `V-Swift_*_x64-setup.exe` | 双击运行安装向导 |
-| **Linux**（Debian / Ubuntu） | `v-swift_*_amd64.deb` | `sudo dpkg -i v-swift_*.deb` |
-| **Linux**（其他发行版） | `v-swift_*_amd64.AppImage` | `chmod +x` 后直接运行 |
+- **Guided node creation**: enter VPS connection details, choose a protocol, and run the deployment workflow from the desktop UI.
+- **Two supported protocols**: VLESS-Reality for Xray-based deployments and Hysteria2 for QUIC-based deployments.
+- **Remote automation over SSH**: system detection, dependency setup, protocol configuration, service management, and firewall setup are handled by bundled shell scripts.
+- **Live progress events**: the Rust backend streams deployment logs to the React interface through Tauri events.
+- **Credential storage**: SSH password or private-key authentication data is saved through macOS Keychain, Windows Credential Manager, or Linux Secret Service via `keyring`.
+- **Local node management**: deployed nodes can be listed, inspected, copied as subscription links, and removed.
 
-> **macOS 首次启动提示「无法验证开发者」？**
-> 应用未做 Apple 公证签名。在「系统设置 → 隐私与安全性」点击「仍要打开」即可，或在终端运行：
-> ```bash
-> xattr -cr /Applications/V-Swift.app
-> ```
+## Install
 
-### 开发者：从源码编译
+### Download a Release
 
-见下方 [快速开始](#快速开始)。
+Download the build for your platform from the [Releases page](https://github.com/Con-Benksl/v-swift/releases).
 
----
+| Platform | Asset | Install notes |
+| --- | --- | --- |
+| macOS Apple Silicon | `V-Swift_*_aarch64.dmg` | Open the DMG and drag the app into Applications |
+| macOS Intel | `V-Swift_*_x64.dmg` | Open the DMG and drag the app into Applications |
+| Windows x86_64 | `V-Swift_*_x64-setup.exe` or `*_x64_en-US.msi` | Run the installer |
+| Debian / Ubuntu | `v-swift_*_amd64.deb` | Install with `sudo dpkg -i v-swift_*.deb` |
+| Other Linux distributions | `v-swift_*_amd64.AppImage` | Mark executable and run directly |
 
-## 特性
+If macOS blocks the app because it is not notarized, open **System Settings > Privacy & Security** and allow it manually, or run:
 
-- **两种协议开箱即用**
-  - **VLESS-Reality** —— 基于 Xray-core，伪装目标握手抗主动探测
-  - **Hysteria2** —— 基于 QUIC，弱网环境吞吐更稳
-- **全自动部署流水线** —— 系统检测 → 依赖安装 → 内核组件下载 → 协议配置 → 防火墙加固 → 服务启停 → 落盘订阅
-- **实时部署进度** —— 后端通过 Tauri 事件流推送每一步日志，前端无缓冲展示
-- **凭据安全存储** —— SSH 密码 / 私钥使用系统密钥环（macOS Keychain / Windows Credential Manager / Linux Secret Service）
-- **节点管理** —— 多节点并存、订阅查看、一键卸载
-- **健壮的错误处理** —— 所有部署脚本带防 SSH 自锁、服务启动失败诊断、端口监听校验
+```bash
+xattr -cr /Applications/V-Swift.app
+```
 
----
+### Build From Source
 
-## 快速开始
+Prerequisites:
 
-### 环境要求
+- Node.js 18 or newer
+- Rust stable toolchain
+- Tauri 2 system dependencies for your platform
 
-- Node.js ≥ 18
-- Rust 工具链（`rustup default stable`）
-- Tauri 2 系统依赖（参考 [Tauri Prerequisites](https://tauri.app/start/prerequisites/)）
-
-### 开发模式
+Install dependencies and start the desktop app in development mode:
 
 ```bash
 npm install
 npm run tauri:dev
 ```
 
-### 构建发行包
+Create a production bundle:
 
 ```bash
 npm run tauri:build
 ```
 
-产物位置：`src-tauri/target/release/bundle/`（macOS `.dmg` / Windows `.msi` / Linux `.deb` `.AppImage`）
+Build outputs are written under `src-tauri/target/release/bundle/`.
 
----
+## Usage
 
-## 使用流程
+1. Create a node and enter the VPS host, SSH port, username, and authentication method.
+2. Choose VLESS-Reality or Hysteria2.
+3. Start deployment and watch the live progress log.
+4. Copy the generated subscription link from the node detail view.
+5. Import the link into a compatible client, such as v2rayN, NekoBox, or another client that supports the generated protocol format.
 
-1. **新建节点** —— 输入 VPS IP、SSH 端口、登录凭据（密码或私钥）
-2. **选择协议** —— VLESS-Reality 或 Hysteria2，可自定义节点名
-3. **执行部署** —— 客户端 SSH 进入 VPS 自动跑完整套部署脚本，全程实时显示进度
-4. **导入订阅** —— 部署完成后在节点详情页复制订阅链接到客户端（v2rayN / NekoBox 等）
+## VPS Requirements
 
----
+- Debian 11+ or Ubuntu 20.04+ is recommended.
+- The account must be `root` or have passwordless `sudo` access.
+- The server must have at least one public port reachable from your client.
+- The target system should use `systemd`.
+- Existing firewall rules should be reviewed before deployment, especially on production hosts.
 
-## VPS 系统要求
+## Security and Privacy
 
-- Debian 11+ / Ubuntu 20.04+（其他 systemd 发行版理论可用）
-- root 用户或具备 sudo 免密的账号
-- 至少一个公网可访问端口（部署器会自动随机分配并配置 UFW/nftables）
+- SSH credentials are not committed to the repository and are not stored in plaintext project files.
+- Runtime credentials are stored through the operating system credential store.
+- Generated node metadata is stored locally by the desktop app and may include protocol parameters required to rebuild subscription links.
+- Treat the local application data directory as sensitive.
+- Deployment scripts run on the target VPS with elevated privileges when needed.
+- Review the scripts under `src-tauri/scripts/` before running the app against servers you care about.
 
----
+## Repository Layout
 
-## 项目结构
-
-```
+```text
 .
-├── src/                    # React 前端（节点向导 / 部署进度 / 订阅视图）
+├── .github/workflows/       # Release workflow
+├── src/                     # React frontend
+│   ├── components/          # Reusable UI components
+│   ├── ipc/                 # Tauri IPC types and wrappers
+│   └── pages/               # Node list, creation wizard, and detail views
 ├── src-tauri/
-│   ├── src/
-│   │   ├── commands.rs     # Tauri IPC 命令层
-│   │   ├── ssh/            # russh 0.45 SSH 客户端封装
-│   │   ├── deploy/         # 部署编排（VLESS-Reality / Hysteria2）
-│   │   ├── credentials/    # 系统密钥环集成
-│   │   └── storage/        # 节点 / 订阅本地存储
-│   └── scripts/            # VPS 端 Shell 脚本（含 download_with_heartbeat、防火墙保护）
-└── README.md
+│   ├── scripts/             # VPS-side deployment and uninstall scripts
+│   └── src/                 # Rust backend
+│       ├── credentials/     # OS credential-store integration
+│       ├── deploy/          # Protocol deployment orchestration
+│       ├── ssh/             # SSH client wrapper
+│       ├── storage/         # Local node storage
+│       └── subscription/    # Subscription URI generation
+└── README.zh-CN.md          # Simplified Chinese documentation
 ```
 
----
+## Tech Stack
 
-## 技术栈
+- **Desktop framework**: Tauri 2
+- **Frontend**: React 18, TypeScript, Vite, Tailwind CSS
+- **Backend**: Rust, Tokio, russh
+- **Storage**: rusqlite and OS credential stores
+- **Protocols**: Xray-core VLESS-Reality and Hysteria2
+- **CI / Release**: GitHub Actions and `tauri-apps/tauri-action`
 
-- **桌面框架**：Tauri 2（Rust 后端 + WebView 前端）
-- **前端**：React 18 + TypeScript + Vite + Tailwind CSS
-- **路由**：React Router v6
-- **SSH**：[russh](https://github.com/warp-tech/russh) 0.45（纯 Rust 实现）
-- **协议内核**：[Xray-core](https://github.com/XTLS/Xray-core) / [Hysteria2](https://github.com/apernet/hysteria)
+## Legal Notice
 
----
+This project is provided for educational, research, and authorized administration purposes only. Do not use it for unauthorized access, abuse, evasion of lawful controls, distribution of illegal content, or any activity prohibited by your jurisdiction or service provider.
+
+By downloading, building, or running this project, you acknowledge that you are solely responsible for how you use it and for any consequences of operating servers deployed with it.
 
 ## License
 
-MIT —— 但请注意：MIT 许可证仅授予您对本仓库**源代码**的使用、修改、再分发权利，**不构成对您实际部署或使用代理服务行为的任何法律授权或背书**。具体使用方式的合规性由使用者本人承担全部责任。详见文首免责声明。
+The source code is licensed under the [MIT License](LICENSE). The license grants rights to the source code only and does not authorize or endorse any particular deployment or network usage.
