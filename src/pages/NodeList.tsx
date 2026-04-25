@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import UpdateControl from '../components/UpdateControl';
 import { listNodes } from '../ipc';
 import { NodeRecord } from '../ipc/types';
 
@@ -136,13 +137,16 @@ export default function NodeList() {
                 同一台 VPS 会收拢到同一张卡片里，便于复用登录资料并管理多个协议实例。
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => navigate('/new')}
-              className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
-            >
-              新建节点
-            </button>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <UpdateControl />
+              <button
+                type="button"
+                onClick={() => navigate('/new')}
+                className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
+              >
+                新建节点
+              </button>
+            </div>
           </div>
         </section>
 

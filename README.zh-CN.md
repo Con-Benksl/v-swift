@@ -81,6 +81,23 @@ npm run tauri:build
 4. 在节点详情页复制生成的订阅链接。
 5. 将订阅链接导入 v2rayN、NekoBox 或其他支持对应协议格式的客户端。
 
+## 自动更新
+
+V-Swift 使用 Tauri 官方 updater 插件从 GitHub Releases 检查并安装新版本。应用启动后会自动检查一次；也可以在节点列表页点击 **检查更新** 手动检查。发现新版本后，点击 **下载并安装**，安装完成后应用会自动重启。
+
+发布新版本时需要：
+
+1. 同步提升 `package.json` 和 `src-tauri/Cargo.toml` 中的版本号。
+2. 创建并推送形如 `v0.2.0` 的 Git tag。
+3. GitHub Actions 会构建各平台安装包、生成 updater artifact、上传 `latest.json`，并发布 Release。
+
+维护者需要在 GitHub 仓库 Secrets 中配置：
+
+- `TAURI_SIGNING_PRIVATE_KEY`：Tauri updater 私钥内容。当前本机备份位于 `~/.tauri/v-swift-updater.key`，不要提交到仓库。
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`：私钥密码；如果生成私钥时没有设置密码，可不配置。
+
+如果私钥丢失，旧版本客户端将无法验证新的更新包，需要重新安装新版应用。
+
 ## VPS 要求
 
 - 推荐 Debian 11+ 或 Ubuntu 20.04+。

@@ -13,6 +13,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -21,5 +22,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFBRDY5RDFGNzJEOThCQUEKUldTcWk5bHlINTNXR3U0Y0w0L1IvTFFia3RwSm5zVG1NNlFoK0NNVXdTSU15NVZsUlVvMTR6ZG4K",
+      "endpoints": [
+        "https://github.com/Con-Benksl/v-swift/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

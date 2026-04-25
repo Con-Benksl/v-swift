@@ -81,6 +81,23 @@ Build outputs are written under `src-tauri/target/release/bundle/`.
 4. Copy the generated subscription link from the node detail view.
 5. Import the link into a compatible client, such as v2rayN, NekoBox, or another client that supports the generated protocol format.
 
+## Auto Update
+
+V-Swift uses the official Tauri updater plugin to check GitHub Releases and install new versions. The app checks once on startup. You can also click **Check for updates** on the node list page. When an update is available, click **Download and install**; the app relaunches after installation.
+
+To publish an update:
+
+1. Bump the version in both `package.json` and `src-tauri/Cargo.toml`.
+2. Create and push a Git tag such as `v0.2.0`.
+3. GitHub Actions builds the platform installers, creates updater artifacts, uploads `latest.json`, and publishes the Release.
+
+Maintainers must configure these GitHub repository secrets:
+
+- `TAURI_SIGNING_PRIVATE_KEY`: the Tauri updater private key. The local backup is stored at `~/.tauri/v-swift-updater.key`; never commit it.
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: the private-key password. Leave it unset if the key was generated without a password.
+
+If the private key is lost, existing clients cannot verify future update packages and users must reinstall a new build manually.
+
 ## VPS Requirements
 
 - Debian 11+ or Ubuntu 20.04+ is recommended.
