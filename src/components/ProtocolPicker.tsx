@@ -51,7 +51,7 @@ const protocolCards: Array<{
 export default function ProtocolPicker({ value, onChange }: ProtocolPickerProps) {
   const fieldClass =
     'mt-2 w-full rounded-2xl border border-slate-200 bg-slate-950/5 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10';
-  const minPort = value.protocol === 'vless-reality' ? 1024 : 1;
+  const minPort = 1;
 
   return (
     <section className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-sm shadow-slate-200/60">
@@ -87,7 +87,7 @@ export default function ProtocolPicker({ value, onChange }: ProtocolPickerProps)
           />
           <span className="mt-2 block text-xs text-slate-500">
             {value.protocol === 'vless-reality'
-              ? 'VLESS Reality 建议使用 1024-65535 之间的未占用 TCP 端口。'
+              ? 'VLESS Reality 建议优先使用 443；如被占用再换其它未占用 TCP 端口。'
               : '建议使用 10000-60000 之间的未占用 UDP 端口。'}
           </span>
         </label>
@@ -191,7 +191,7 @@ export default function ProtocolPicker({ value, onChange }: ProtocolPickerProps)
           <p className="text-sm font-medium text-slate-900">部署建议</p>
           <ul className="mt-3 space-y-2 text-sm text-slate-600">
             <li>使用不同节点名称区分用途，例如主线路、备用线路、UDP 专线。</li>
-            <li>同一台 VPS 上不同节点尽量使用不同端口，避免覆盖已有实例。</li>
+            <li>VLESS Reality 优先使用 443 或 8443，Hysteria2 建议使用高位 UDP 端口。</li>
             <li>如果更换协议或端口，建议同时更新云安全组规则。</li>
           </ul>
         </div>

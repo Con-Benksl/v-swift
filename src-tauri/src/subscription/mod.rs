@@ -1,8 +1,14 @@
-use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use qrcode::{render::svg::Color, QrCode};
 
 use crate::deploy::{NodeRecord, ProtocolId};
 use crate::error::{AppError, AppResult};
+
+const URI_COMPONENT_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'.')
+    .remove(b'_')
+    .remove(b'~');
 
 pub struct Subscription {
     pub uri: String,
@@ -23,15 +29,15 @@ pub fn build(node: &NodeRecord) -> AppResult<Subscription> {
 
 fn build_vless_reality_uri(node: &NodeRecord) -> AppResult<String> {
     let params = &node.protocol_params;
-    let uuid = encode(required_string(params, "uuid")?);
-    let public_key = encode(required_string(params, "public_key")?);
-    let short_id = encode(required_string(params, "short_id")?);
+    let uuid = encode_userinfo(required_string(params, "uuid")?);
+    let public_key = encode_query_value(required_string(params, "public_key")?);
+    let short_id = encode_query_value(required_string(params, "short_id")?);
     let port = required_u64(params, "port")?;
-    let sni = encode(required_string(params, "sni")?);
-    let flow = encode(optional_string(params, "flow").unwrap_or("xtls-rprx-vision"));
-    let spider_x = encode(optional_string(params, "spider_x").unwrap_or("/"));
-    let name = encode(&node.name);
-    let host = encode(&node.host);
+    let sni = encode_query_value(required_string(params, "sni")?);
+    let flow = encode_query_value(optional_string(params, "flow").unwrap_or("xtls-rprx-vision"));
+    let spider_x = encode_query_value(optional_string(params, "spider_x").unwrap_or("/"));
+    let name = encode_fragment(&node.name);
+    let host = encode_host(&node.host);
 
     Ok(format!(
         "vless://{uuid}@{host}:{port}?encryption=none&flow={flow}&security=reality&sni={sni}&fp=chrome&pbk={public_key}&sid={short_id}&spx={spider_x}&type=tcp#{name}"
@@ -40,11 +46,11 @@ fn build_vless_reality_uri(node: &NodeRecord) -> AppResult<String> {
 
 fn build_hysteria2_uri(node: &NodeRecord) -> AppResult<String> {
     let params = &node.protocol_params;
-    let password = encode(required_string(params, "password")?);
+    let password = encode_userinfo(required_string(params, "password")?);
     let port = required_u64(params, "port")?;
-    let sni = encode(required_string(params, "sni")?);
-    let name = encode(&node.name);
-    let host = encode(&node.host);
+    let sni = encode_query_value(required_string(params, "sni")?);
+    let name = encode_fragment(&node.name);
+    let host = encode_host(&node.host);
     let insecure = if is_insecure_enabled(params) {
         "&insecure=1"
     } else {
@@ -83,8 +89,20 @@ fn is_insecure_enabled(params: &serde_json::Value) -> bool {
     }
 }
 
-fn encode(value: &str) -> String {
-    utf8_percent_encode(value, NON_ALPHANUMERIC).to_string()
+fn encode_userinfo(value: &str) -> String {
+    utf8_percent_encode(value, URI_COMPONENT_ENCODE_SET).to_string()
+}
+
+fn encode_host(value: &str) -> String {
+    utf8_percent_encode(value, URI_COMPONENT_ENCODE_SET).to_string()
+}
+
+fn encode_query_value(value: &str) -> String {
+    utf8_percent_encode(value, URI_COMPONENT_ENCODE_SET).to_string()
+}
+
+fn encode_fragment(value: &str) -> String {
+    utf8_percent_encode(value, URI_COMPONENT_ENCODE_SET).to_string()
 }
 
 #[cfg(test)]
@@ -107,8 +125,8 @@ mod tests {
             protocol: ProtocolId::VlessReality,
             protocol_params: json!({
                 "uuid": "123e4567-e89b-12d3-a456-426614174000",
-                "public_key": "pubkey123",
-                "short_id": "abcd",
+                "public_key": "pub_key-123",
+                "short_id": "abcd1234",
                 "port": 443,
                 "sni": "cdn.example.com",
                 "flow": "xtls-rprx-vision"
@@ -120,7 +138,7 @@ mod tests {
         let subscription = build(&node).expect("build should succeed");
         assert_eq!(
             subscription.uri,
-            "vless://123e4567%2De89b%2D12d3%2Da456%2D426614174000@example%2Ecom:443?encryption=none&flow=xtls%2Drprx%2Dvision&security=reality&sni=cdn%2Eexample%2Ecom&fp=chrome&pbk=pubkey123&sid=abcd&spx=%2F&type=tcp#My%20Node"
+            "vless://123e4567-e89b-12d3-a456-426614174000@example.com:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=cdn.example.com&fp=chrome&pbk=pub_key-123&sid=abcd1234&spx=%2F&type=tcp#My%20Node"
         );
     }
 

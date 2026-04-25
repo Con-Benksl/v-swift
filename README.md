@@ -85,6 +85,8 @@ Build outputs are written under `src-tauri/target/release/bundle/`.
 - Debian 11+ or Ubuntu 20.04+ is recommended.
 - The account must be `root` or have passwordless `sudo` access.
 - The server must have at least one public port reachable from your client.
+- For VLESS-Reality, TCP 443 is recommended when available; if it is already occupied, choose another reachable TCP port such as 8443.
+- For Hysteria2, choose and open a reachable UDP port, commonly in the high port range.
 - The target system should use `systemd`.
 - Existing firewall rules should be reviewed before deployment, especially on production hosts.
 

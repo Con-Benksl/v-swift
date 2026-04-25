@@ -23,6 +23,8 @@ const steps = [
   { id: 3, title: '查看订阅' },
 ];
 
+const DEFAULT_VLESS_PORT = 443;
+
 function randomPort() {
   return Math.floor(Math.random() * (60000 - 10000 + 1)) + 10000;
 }
@@ -42,7 +44,7 @@ function baseProtocol(): ProtocolPickerValue {
   return {
     nodeName: '',
     protocol: 'vless-reality',
-    port: randomPort(),
+    port: DEFAULT_VLESS_PORT,
     sni: 'www.microsoft.com',
   };
 }
@@ -168,7 +170,7 @@ export default function NewNodeWizard() {
       ? !!credential.vpsProfileId
       : !!credential.host.trim() && !!credential.user.trim() && credential.port > 0);
 
-  const minProtocolPort = protocol.protocol === 'vless-reality' ? 1024 : 1;
+  const minProtocolPort = 1;
   const protocolValid =
     !!protocol.nodeName.trim() &&
     protocol.port >= minProtocolPort &&
@@ -180,6 +182,25 @@ export default function NewNodeWizard() {
     setTestState('idle');
     setTestError('');
     setOsInfo(null);
+  };
+
+  const handleProtocolChange = (nextValue: ProtocolPickerValue) => {
+    setProtocol((prevValue) => {
+      if (
+        prevValue.protocol === 'vless-reality' &&
+        nextValue.protocol === 'hysteria2' &&
+        prevValue.port === DEFAULT_VLESS_PORT &&
+        nextValue.port === DEFAULT_VLESS_PORT
+      ) {
+        return { ...nextValue, port: randomPort() };
+      }
+
+      if (prevValue.protocol === 'hysteria2' && nextValue.protocol === 'vless-reality') {
+        return { ...nextValue, port: DEFAULT_VLESS_PORT };
+      }
+
+      return nextValue;
+    });
   };
 
   const handleTestConnection = () => {
@@ -337,7 +358,7 @@ export default function NewNodeWizard() {
 
           {step === 1 ? (
             <div className="space-y-6">
-              <ProtocolPicker value={protocol} onChange={setProtocol} />
+              <ProtocolPicker value={protocol} onChange={handleProtocolChange} />
               <div className="flex flex-wrap justify-between gap-3">
                 <button
                   type="button"

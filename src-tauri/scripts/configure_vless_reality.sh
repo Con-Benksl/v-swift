@@ -9,7 +9,7 @@ if [[ -z "${PORT}" ]]; then
   exit 1
 fi
 
-if ! [[ "${PORT}" =~ ^[0-9]+$ ]] || (( PORT < 1024 || PORT > 65535 )); then
+if ! [[ "${PORT}" =~ ^[0-9]+$ ]] || (( PORT < 1 || PORT > 65535 )); then
   echo "::error:: invalid_port port=${PORT}"
   exit 1
 fi
