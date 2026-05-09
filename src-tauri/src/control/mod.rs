@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", tag = "status")]
 pub enum ConnectionStatus {
     Disconnected,
     Connecting,
     Connected,
-    Error(String),
+    Error { message: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

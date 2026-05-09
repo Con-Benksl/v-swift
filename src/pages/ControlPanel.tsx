@@ -9,7 +9,7 @@ import {
   disconnectVps,
   getNetworkStats,
   getServiceLogs,
-  getServiceStatus,
+  getAllServiceStatuses,
   getSystemStatus,
   restartService,
   startService,
@@ -55,7 +55,7 @@ export default function ControlPanel() {
   }, [selectedVpsId, searchParams]);
 
   const connectAndLoadData = useCallback(async (vpsId: string) => {
-    if (connectionStatus !== 'disconnected') {
+    if (connectionStatus.status !== 'disconnected') {
       try {
         await disconnectVps(vpsId);
       } catch {
@@ -83,21 +83,21 @@ export default function ControlPanel() {
       const [sys, net, svc] = await Promise.all([
         getSystemStatus(vpsId),
         getNetworkStats(vpsId),
-        getServiceStatus(vpsId, 'vless-reality').catch(() => null).then(s => s ? [s] : []),
+        getAllServiceStatuses(vpsId),
       ]);
       setSystemStatus(sys);
       setNetworkStats(net);
-      setServices(svc as ServiceStatus[]);
+      setServices(svc);
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载状态失败');
     } finally {
       setLoadingStatus(false);
     }
 
-    if (selectedVpsId) {
+    if (svc.length > 0) {
       setLoadingLogs(true);
       try {
-        const logLines = await getServiceLogs(selectedVpsId, 'vless-reality');
+        const logLines = await getServiceLogs(vpsId, svc[0].protocol);
         setLogs(logLines);
       } catch {
         setLogs(['Failed to load logs']);
@@ -105,10 +105,10 @@ export default function ControlPanel() {
         setLoadingLogs(false);
       }
     }
-  }, [connectionStatus, selectedVpsId]);
+  }, [connectionStatus]);
 
   const refreshData = useCallback(async () => {
-    if (!selectedVpsId || connectionStatus !== 'connected') return;
+    if (!selectedVpsId || connectionStatus.status !== 'connected') return;
 
     setLoadingStatus(true);
     try {
@@ -125,12 +125,12 @@ export default function ControlPanel() {
   }, [selectedVpsId, connectionStatus]);
 
   const refreshServices = useCallback(async () => {
-    if (!selectedVpsId || connectionStatus !== 'connected') return;
+    if (!selectedVpsId || connectionStatus.status !== 'connected') return;
 
     setLoadingServices(true);
     try {
-      const svc = await getServiceStatus(selectedVpsId, 'vless-reality');
-      setServices([svc]);
+      const svc = await getAllServiceStatuses(selectedVpsId);
+      setServices(svc);
     } catch {
       setServices([]);
     } finally {
@@ -138,19 +138,21 @@ export default function ControlPanel() {
     }
   }, [selectedVpsId, connectionStatus]);
 
-  const refreshLogs = useCallback(async () => {
-    if (!selectedVpsId || connectionStatus !== 'connected') return;
+  const refreshLogs = useCallback(async (protocol?: string) => {
+    if (!selectedVpsId || connectionStatus.status !== 'connected') return;
+
+    const targetProtocol = protocol || (services.length > 0 ? services[0].protocol : 'vless-reality');
 
     setLoadingLogs(true);
     try {
-      const logLines = await getServiceLogs(selectedVpsId, 'vless-reality');
+      const logLines = await getServiceLogs(selectedVpsId, targetProtocol);
       setLogs(logLines);
     } catch {
       setLogs(['Failed to load logs']);
     } finally {
       setLoadingLogs(false);
     }
-  }, [selectedVpsId, connectionStatus]);
+  }, [selectedVpsId, connectionStatus, services]);
 
   useEffect(() => {
     void loadProfiles();
@@ -197,10 +199,10 @@ export default function ControlPanel() {
   };
 
   const connectionLabel = () => {
-    if (connectionStatus === 'disconnected') return { text: '未连接', class: 'text-slate-500' };
-    if (connectionStatus === 'connecting') return { text: '连接中...', class: 'text-amber-500' };
-    if (connectionStatus === 'connected') return { text: '已连接', class: 'text-emerald-600' };
-    if ('error' in connectionStatus) return { text: `错误: ${connectionStatus.error}`, class: 'text-rose-600' };
+    if (connectionStatus.status === 'disconnected') return { text: '未连接', class: 'text-slate-500' };
+    if (connectionStatus.status === 'connecting') return { text: '连接中...', class: 'text-amber-500' };
+    if (connectionStatus.status === 'connected') return { text: '已连接', class: 'text-emerald-600' };
+    if (connectionStatus.status === 'error') return { text: `错误: ${connectionStatus.message}`, class: 'text-rose-600' };
     return { text: '未知', class: 'text-slate-500' };
   };
 

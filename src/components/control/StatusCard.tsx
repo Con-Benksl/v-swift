@@ -152,7 +152,7 @@ export function SystemStatusCards({ status, loading }: SystemStatusCardsProps) {
         title="内存"
         value={`${(status.memoryUsed / 1024).toFixed(1)} GB`}
         subValue={`总计 ${(status.memoryTotal / 1024).toFixed(1)} GB`}
-        percent={status.memoryPercent}
+        percent={status.memoryTotal > 0 ? (status.memoryUsed / status.memoryTotal) * 100 : 0}
         icon={<MemoryIcon />}
         color="emerald"
       />

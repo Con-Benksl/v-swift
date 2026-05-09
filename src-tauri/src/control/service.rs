@@ -4,14 +4,14 @@ use crate::ssh::SshSession;
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServiceStatus {
-    pub is_active: bool,
-    pub is_running: bool,
-    pub active_state: String,
-    pub sub_state: String,
-    pub main_pid: Option<u32>,
+    pub name: String,
+    pub protocol: String,
+    pub active: bool,
+    pub running: bool,
+    pub port: Option<u16>,
+    pub pid: Option<u32>,
     pub memory_usage: Option<String>,
     pub uptime: Option<String>,
-    pub port: Option<u16>,
     pub raw_status: String,
 }
 
@@ -105,14 +105,14 @@ pub async fn get_service_status(ssh: &SshSession, protocol: &str) -> AppResult<S
     }
 
     Ok(ServiceStatus {
-        is_active,
-        is_running,
-        active_state,
-        sub_state,
-        main_pid,
+        name: service_name.to_string(),
+        protocol: protocol.to_string(),
+        active: is_active,
+        running: is_running,
+        port,
+        pid: main_pid,
         memory_usage,
         uptime,
-        port,
         raw_status,
     })
 }
@@ -222,7 +222,7 @@ pub async fn get_service_logs(
         ))
         .await?;
 
-    if output.exit_code != 0 && !output.stdout.is_empty() == false {
+    if output.exit_code != 0 {
         if output.stderr.contains("No entries") || output.stderr.contains("cannot allocate") {
             return Ok(vec![]);
         }

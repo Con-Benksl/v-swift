@@ -6,7 +6,6 @@ export interface SystemStatus {
   memoryUsed: number;
   memoryFree: number;
   memoryAvailable: number;
-  memoryPercent: number;
   diskTotal: number;
   diskUsed: number;
   diskAvailable: number;
@@ -30,10 +29,10 @@ export interface ServiceStatus {
 }
 
 export type ConnectionStatus =
-  | 'disconnected'
-  | 'connecting'
-  | 'connected'
-  | { error: string };
+  | { status: 'disconnected' }
+  | { status: 'connecting' }
+  | { status: 'connected' }
+  | { status: 'error'; message: string };
 
 export async function getSystemStatus(vpsId: string): Promise<SystemStatus> {
   return invoke<SystemStatus>('get_system_status', { vpsId });
@@ -45,6 +44,10 @@ export async function getNetworkStats(vpsId: string): Promise<NetworkStats> {
 
 export async function getServiceStatus(vpsId: string, protocol: string): Promise<ServiceStatus> {
   return invoke<ServiceStatus>('get_service_status', { vpsId, protocol });
+}
+
+export async function getAllServiceStatuses(vpsId: string): Promise<ServiceStatus[]> {
+  return invoke<ServiceStatus[]>('get_all_service_statuses', { vpsId });
 }
 
 export async function restartService(vpsId: string, protocol: string): Promise<void> {

@@ -53,7 +53,7 @@ impl SshPool {
                 let mut statuses = self.statuses.lock().await;
                 statuses.insert(
                     vps_id.to_string(),
-                    ConnectionStatus::Error(err.to_string()),
+                    ConnectionStatus::Error { message: err.to_string() },
                 );
                 return Err(err);
             }

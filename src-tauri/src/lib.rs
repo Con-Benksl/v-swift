@@ -49,6 +49,7 @@ pub fn run() {
             control::get_system_status,
             control::get_network_stats,
             control::get_service_status,
+            control::get_all_service_statuses,
             control::start_service,
             control::stop_service,
             control::restart_service,
