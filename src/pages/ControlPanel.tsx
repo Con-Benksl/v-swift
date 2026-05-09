@@ -23,6 +23,7 @@ const REFRESH_INTERVAL = 30_000;
 
 export default function ControlPanel() {
   const [searchParams] = useSearchParams();
+  const vpsIdFromUrl = searchParams.get('vpsId');
   const [profiles, setProfiles] = useState<VpsProfileSummary[]>([]);
   const [selectedVpsId, setSelectedVpsId] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({ status: 'disconnected' });
@@ -44,18 +45,17 @@ export default function ControlPanel() {
     try {
       const data = await listVpsProfiles();
       setProfiles(data);
-      const vpsIdFromUrl = searchParams.get('vpsId');
-      if (vpsIdFromUrl) {
-        setSelectedVpsId(vpsIdFromUrl);
-      } else if (data.length > 0 && !selectedVpsId) {
-        setSelectedVpsId(data[0].id);
-      }
+      setSelectedVpsId((current) => {
+        if (vpsIdFromUrl) return vpsIdFromUrl;
+        if (data.length > 0 && !current) return data[0].id;
+        return current;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载 VPS 列表失败');
     } finally {
       setLoadingProfiles(false);
     }
-  }, [selectedVpsId, searchParams]);
+  }, [vpsIdFromUrl]);
 
   useEffect(() => {
     selectedVpsIdRef.current = selectedVpsId;

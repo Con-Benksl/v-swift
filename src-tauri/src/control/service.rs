@@ -1,6 +1,4 @@
-use std::borrow::Cow;
-
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::ssh::SshSession;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -17,17 +15,19 @@ pub struct ServiceStatus {
     pub raw_status: String,
 }
 
-fn protocol_to_service(protocol: &str) -> Cow<'_, str> {
+fn protocol_to_service(protocol: &str) -> AppResult<&'static str> {
     let normalized = protocol.to_lowercase();
     match normalized.as_str() {
-        "vless-reality" | "vlessreality" | "vless" | "xray" | "reality" => Cow::Borrowed("xray"),
-        "hysteria2" | "hy2" | "hysteria" => Cow::Borrowed("hysteria2"),
-        _ => Cow::Borrowed(protocol),
+        "vless-reality" | "vlessreality" | "vless" | "xray" | "reality" => Ok("xray"),
+        "hysteria2" | "hy2" | "hysteria" => Ok("hysteria2"),
+        _ => Err(AppError::Other(format!(
+            "unsupported service protocol: {protocol}"
+        ))),
     }
 }
 
 pub async fn get_service_status(ssh: &SshSession, protocol: &str) -> AppResult<ServiceStatus> {
-    let service_name = protocol_to_service(protocol);
+    let service_name = protocol_to_service(protocol)?;
 
     let is_active_output = ssh
         .exec(&format!("systemctl is-active {service_name}"))
@@ -112,7 +112,7 @@ pub async fn get_service_status(ssh: &SshSession, protocol: &str) -> AppResult<S
 }
 
 pub async fn start_service(ssh: &SshSession, protocol: &str) -> AppResult<()> {
-    let service_name = protocol_to_service(protocol);
+    let service_name = protocol_to_service(protocol)?;
 
     let output = ssh
         .exec(&format!("sudo systemctl start {service_name}"))
@@ -142,7 +142,7 @@ pub async fn start_service(ssh: &SshSession, protocol: &str) -> AppResult<()> {
 }
 
 pub async fn stop_service(ssh: &SshSession, protocol: &str) -> AppResult<()> {
-    let service_name = protocol_to_service(protocol);
+    let service_name = protocol_to_service(protocol)?;
 
     let output = ssh
         .exec(&format!("sudo systemctl stop {service_name}"))
@@ -172,7 +172,7 @@ pub async fn stop_service(ssh: &SshSession, protocol: &str) -> AppResult<()> {
 }
 
 pub async fn restart_service(ssh: &SshSession, protocol: &str) -> AppResult<()> {
-    let service_name = protocol_to_service(protocol);
+    let service_name = protocol_to_service(protocol)?;
 
     let output = ssh
         .exec(&format!("sudo systemctl restart {service_name}"))
@@ -206,7 +206,7 @@ pub async fn get_service_logs(
     protocol: &str,
     lines: u32,
 ) -> AppResult<Vec<String>> {
-    let service_name = protocol_to_service(protocol);
+    let service_name = protocol_to_service(protocol)?;
 
     let lines = if lines == 0 { 50 } else { lines.min(1000) };
 
@@ -225,4 +225,15 @@ pub async fn get_service_logs(
     let logs: Vec<String> = output.stdout.lines().map(|line| line.to_string()).collect();
 
     Ok(logs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn protocol_to_service_rejects_unknown_protocols() {
+        let err = protocol_to_service("xray; touch /tmp/pwn").unwrap_err();
+        assert!(err.to_string().contains("unsupported service protocol"));
+    }
 }
