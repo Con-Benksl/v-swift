@@ -19,6 +19,7 @@ Current scope:
 - Show real-time deployment progress from the Rust backend
 - Save node records and generated subscription links locally
 - Uninstall previously deployed protocol services from the target VPS
+- Monitor and control deployed VPS protocol services from the desktop app
 
 ## Features
 
@@ -29,6 +30,7 @@ Current scope:
 - **Credential storage**: SSH password or private-key authentication data is saved through macOS Keychain, Windows Credential Manager, or Linux Secret Service via `keyring`.
 - **Local node management**: deployed nodes can be listed, inspected, copied as subscription links, and removed.
 - **Managed multi-node subscription**: install a lightweight VPS-side subscription service for Clash/Mihomo and return usage headers backed by `vnstat`.
+- **VPS control panel**: connect to a saved VPS profile, view system status, start/stop/restart deployed protocol services, and inspect recent service logs.
 
 ## Install
 
@@ -80,6 +82,7 @@ Build outputs are written under `src-tauri/target/release/bundle/`.
 3. Start deployment and watch the live progress log.
 4. Copy the generated subscription link from the node detail view.
 5. Import the link into a compatible client, such as v2rayN, NekoBox, or another client that supports the generated protocol format.
+6. Open the control panel for a saved VPS to check host metrics, manage `xray` or `hysteria2`, and read recent `journalctl` logs.
 
 ## Auto Update
 
@@ -154,11 +157,13 @@ Additional notes:
 ├── .github/workflows/       # Release workflow
 ├── src/                     # React frontend
 │   ├── components/          # Reusable UI components
+│   │   └── control/         # VPS control-panel UI components
 │   ├── ipc/                 # Tauri IPC types and wrappers
-│   └── pages/               # Node list, creation wizard, and detail views
+│   └── pages/               # Node list, creation wizard, detail, and control-panel views
 ├── src-tauri/
 │   ├── scripts/             # VPS-side deployment and uninstall scripts
 │   └── src/                 # Rust backend
+│       ├── control/         # SSH pool, system monitor, service control, and log retrieval
 │       ├── credentials/     # OS credential-store integration
 │       ├── deploy/          # Protocol deployment orchestration
 │       ├── ssh/             # SSH client wrapper

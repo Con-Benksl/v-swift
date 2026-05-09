@@ -19,6 +19,7 @@ V-Swift 不是通用代理客户端，也不会在本机接管流量。它的核
 - 通过 Tauri 事件实时展示部署进度
 - 在本地保存节点记录和订阅链接
 - 从目标 VPS 卸载已部署的协议服务
+- 在桌面端监控和控制已部署的 VPS 协议服务
 
 ## 特性
 
@@ -29,6 +30,7 @@ V-Swift 不是通用代理客户端，也不会在本机接管流量。它的核
 - **凭据安全存储**：SSH 密码或私钥认证信息通过 `keyring` 存入 macOS Keychain、Windows Credential Manager 或 Linux Secret Service。
 - **本地节点管理**：支持查看节点、复制订阅链接、删除节点以及卸载远端服务。
 - **远程多节点订阅**：在 VPS 上安装轻量订阅服务，生成 Clash/Mihomo 订阅链接，并通过 `vnstat` 响应流量用量头。
+- **VPS 控制面板**：连接已保存的 VPS profile，查看系统状态，启动、停止或重启已部署协议服务，并查看最近的服务日志。
 
 ## 安装
 
@@ -80,6 +82,7 @@ npm run tauri:build
 3. 启动部署，并查看实时进度日志。
 4. 在节点详情页复制生成的订阅链接。
 5. 将订阅链接导入 v2rayN、NekoBox 或其他支持对应协议格式的客户端。
+6. 打开 VPS 控制面板，检查主机指标，管理 `xray` 或 `hysteria2` 服务，并查看最近的 `journalctl` 日志。
 
 ## 自动更新
 
@@ -154,11 +157,13 @@ V-Swift 会在 VPS 系统内配置基础防火墙规则，但它不能自动修�
 ├── .github/workflows/       # 发布工作流
 ├── src/                     # React 前端
 │   ├── components/          # 可复用 UI 组件
+│   │   └── control/         # VPS 控制面板 UI 组件
 │   ├── ipc/                 # Tauri IPC 类型和封装
-│   └── pages/               # 节点列表、创建向导和详情页
+│   └── pages/               # 节点列表、创建向导、详情页和控制面板
 ├── src-tauri/
 │   ├── scripts/             # VPS 端部署和卸载脚本
 │   └── src/                 # Rust 后端
+│       ├── control/         # SSH 连接池、系统监控、服务控制和日志读取
 │       ├── credentials/     # 系统凭据管理器集成
 │       ├── deploy/          # 协议部署编排
 │       ├── ssh/             # SSH 客户端封装
