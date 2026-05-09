@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import UpdateControl from '../components/UpdateControl';
 import { listNodes } from '../ipc';
@@ -56,6 +56,12 @@ export default function NodeList() {
   const [nodes, setNodes] = useState<NodeRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const vpsId = useCallback(
+    (group: VpsNodeGroup) =>
+      group.id,
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -195,19 +201,28 @@ export default function NodeList() {
                         {group.host}:{group.sshPort} · {group.sshUser}
                       </p>
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                        <p className="text-xs uppercase tracking-wide text-slate-400">最近变更</p>
-                        <p className="mt-1 text-sm font-medium text-slate-800">
-                          {formatRelativeTime(group.latestCreatedAt)}
-                        </p>
+                    <div className="flex items-center gap-3">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                          <p className="text-xs uppercase tracking-wide text-slate-400">最近变更</p>
+                          <p className="mt-1 text-sm font-medium text-slate-800">
+                            {formatRelativeTime(group.latestCreatedAt)}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                          <p className="text-xs uppercase tracking-wide text-slate-400">协议类型</p>
+                          <p className="mt-1 text-sm font-medium text-slate-800">
+                            {[...new Set(group.nodes.map((item) => protocolLabel(item.protocol)))].join(' / ')}
+                          </p>
+                        </div>
                       </div>
-                      <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                        <p className="text-xs uppercase tracking-wide text-slate-400">协议类型</p>
-                        <p className="mt-1 text-sm font-medium text-slate-800">
-                          {[...new Set(group.nodes.map((item) => protocolLabel(item.protocol)))].join(' / ')}
-                        </p>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/control?vpsId=${encodeURIComponent(vpsId(group))}`)}
+                        className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-500"
+                      >
+                        控制面板
+                      </button>
                     </div>
                   </div>
 
