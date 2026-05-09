@@ -41,10 +41,11 @@ V-Swift 不是通用代理客户端，也不会在本机接管流量。它的核
 | 平台 | 文件 | 安装方式 |
 | --- | --- | --- |
 | macOS Apple Silicon | `V-Swift_*_aarch64.dmg` | 打开 DMG 后拖入 Applications |
-| macOS Intel | `V-Swift_*_x64.dmg` | 打开 DMG 后拖入 Applications |
 | Windows x86_64 | `V-Swift_*_x64-setup.exe` 或 `*_x64_en-US.msi` | 运行安装程序 |
 | Debian / Ubuntu | `v-swift_*_amd64.deb` | 使用 `sudo dpkg -i v-swift_*.deb` 安装 |
 | 其他 Linux 发行版 | `v-swift_*_amd64.AppImage` | 添加执行权限后直接运行 |
+
+当前发行版不再发布新的 macOS Intel 安装包。
 
 如果 macOS 因未公证签名阻止启动，可以在 **系统设置 > 隐私与安全性** 中手动允许，或执行：
 

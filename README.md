@@ -41,10 +41,11 @@ Download the build for your platform from the [Releases page](https://github.com
 | Platform | Asset | Install notes |
 | --- | --- | --- |
 | macOS Apple Silicon | `V-Swift_*_aarch64.dmg` | Open the DMG and drag the app into Applications |
-| macOS Intel | `V-Swift_*_x64.dmg` | Open the DMG and drag the app into Applications |
 | Windows x86_64 | `V-Swift_*_x64-setup.exe` or `*_x64_en-US.msi` | Run the installer |
 | Debian / Ubuntu | `v-swift_*_amd64.deb` | Install with `sudo dpkg -i v-swift_*.deb` |
 | Other Linux distributions | `v-swift_*_amd64.AppImage` | Mark executable and run directly |
+
+Current releases do not publish a new macOS Intel package.
 
 If macOS blocks the app because it is not notarized, open **System Settings > Privacy & Security** and allow it manually, or run:
 

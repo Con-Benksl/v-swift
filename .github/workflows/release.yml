@@ -18,9 +18,6 @@ jobs:
           - platform: macos-latest
             args: "--target aarch64-apple-darwin"
             label: macOS (Apple Silicon)
-          - platform: macos-15-intel
-            args: "--target x86_64-apple-darwin"
-            label: macOS (Intel)
           - platform: ubuntu-22.04
             args: ""
             label: Linux (x86_64)
@@ -44,7 +41,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || matrix.platform == 'macos-13' && 'x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
 
       - name: Cache Rust build
         uses: swatinem/rust-cache@v2
@@ -88,7 +85,6 @@ jobs:
             | 平台 | 文件 |
             |---|---|
             | macOS (Apple Silicon, M1/M2/M3) | `*_aarch64.dmg` |
-            | macOS (Intel) | `*_x64.dmg` |
             | Windows (x86_64) | `*_x64-setup.exe` 或 `*_x64_en-US.msi` |
             | Linux (Debian/Ubuntu) | `*_amd64.deb` |
             | Linux (其他发行版) | `*_amd64.AppImage` |
