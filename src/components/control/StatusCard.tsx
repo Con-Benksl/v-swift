@@ -116,10 +116,10 @@ interface SystemStatusCardsProps {
 }
 
 export function SystemStatusCards({ status, loading }: SystemStatusCardsProps) {
-  if (loading || !status) {
+  if (loading) {
     return (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {[...Array(4)].map((_, i) => (
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {[...Array(3)].map((_, i) => (
           <div
             key={i}
             className="animate-pulse rounded-3xl border border-slate-200 bg-slate-100 p-5 shadow-sm"
@@ -133,8 +133,16 @@ export function SystemStatusCards({ status, loading }: SystemStatusCardsProps) {
     );
   }
 
+  if (!status) {
+    return (
+      <div className="rounded-3xl border border-dashed border-slate-300 bg-white/90 p-10 text-center shadow-sm shadow-slate-200/60">
+        <p className="text-sm text-slate-500">选择 VPS 后会显示系统状态</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <StatusCard
         title="CPU 使用率"
         value={`${status.cpuPercent.toFixed(1)}%`}

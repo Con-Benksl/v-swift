@@ -300,12 +300,12 @@ export default function ControlPanel() {
         </section>
 
         {error && (
-          <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-            {error}
+          <div className="mt-6 flex flex-col gap-3 rounded-3xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700 sm:flex-row sm:items-center sm:justify-between">
+            <p>{error}</p>
             <button
               type="button"
               onClick={() => setError('')}
-              className="ml-3 underline hover:no-underline"
+              className="self-start rounded-2xl border border-rose-200 bg-white px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-100 sm:self-auto"
             >
               关闭
             </button>
