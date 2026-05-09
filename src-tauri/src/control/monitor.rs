@@ -10,13 +10,13 @@ pub async fn get_system_status(ssh: &SshSession) -> AppResult<SystemStatus> {
         ssh.exec("cat /proc/uptime | awk '{print $1}'"),
     );
 
-    let cpu_usage = parse_cpu_usage(cpu_result?);
+    let cpu_percent = parse_cpu_usage(cpu_result?);
     let (memory_total, memory_used, memory_free, memory_available) = parse_memory(mem_result?);
     let (disk_total, disk_used, disk_available, disk_usage_percent) = parse_disk(disk_result?);
     let uptime_seconds = parse_uptime(uptime_result?);
 
     Ok(SystemStatus {
-        cpu_usage,
+        cpu_percent,
         memory_total,
         memory_used,
         memory_free,

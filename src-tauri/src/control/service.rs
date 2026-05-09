@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::error::AppResult;
 use crate::ssh::SshSession;
 
@@ -15,11 +17,12 @@ pub struct ServiceStatus {
     pub raw_status: String,
 }
 
-fn protocol_to_service(protocol: &str) -> &'static str {
-    match protocol.to_lowercase().as_str() {
-        "vless-reality" | "vlessreality" | "vless" | "xray" | "reality" => "xray",
-        "hysteria2" | "hy2" | "hysteria" => "hysteria2",
-        _ => protocol,
+fn protocol_to_service(protocol: &str) -> Cow<'_, str> {
+    let normalized = protocol.to_lowercase();
+    match normalized.as_str() {
+        "vless-reality" | "vlessreality" | "vless" | "xray" | "reality" => Cow::Borrowed("xray"),
+        "hysteria2" | "hy2" | "hysteria" => Cow::Borrowed("hysteria2"),
+        _ => Cow::Borrowed(protocol),
     }
 }
 
@@ -42,7 +45,6 @@ pub async fn get_service_status(ssh: &SshSession, protocol: &str) -> AppResult<S
     };
 
     let mut is_running = false;
-    let mut sub_state = String::new();
     let mut main_pid: Option<u32> = None;
     let mut memory_usage: Option<String> = None;
     let mut uptime: Option<String> = None;
@@ -53,14 +55,6 @@ pub async fn get_service_status(ssh: &SshSession, protocol: &str) -> AppResult<S
 
         if line_lower.contains("active:") || line_lower.contains("active (") {
             is_running = line_lower.contains("active (running)");
-            if let Some(start) = line_lower.find("active") {
-                if let Some(paren_start) = line_lower[start..].find('(') {
-                    if let Some(paren_end) = line_lower[start..].find(')') {
-                        sub_state =
-                            line_lower[start + paren_start + 1..start + paren_end].to_string();
-                    }
-                }
-            }
         }
 
         if line_lower.starts_with("main pid:") {

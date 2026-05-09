@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   ConnectionStatus,
@@ -36,6 +36,9 @@ export default function ControlPanel() {
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const connectRequestIdRef = useRef(0);
+  const selectedVpsIdRef = useRef<string | null>(null);
+  const connectedVpsIdRef = useRef<string | null>(null);
 
   const loadProfiles = useCallback(async () => {
     try {
@@ -54,13 +57,21 @@ export default function ControlPanel() {
     }
   }, [selectedVpsId, searchParams]);
 
+  useEffect(() => {
+    selectedVpsIdRef.current = selectedVpsId;
+  }, [selectedVpsId]);
+
+  useEffect(() => {
+    return () => {
+      connectRequestIdRef.current += 1;
+    };
+  }, []);
+
   const connectAndLoadData = useCallback(async (vpsId: string) => {
-    if (connectionStatus.status !== 'disconnected') {
-      try {
-        await disconnectVps(vpsId);
-      } catch {
-      }
-    }
+    const requestId = connectRequestIdRef.current + 1;
+    connectRequestIdRef.current = requestId;
+    const isCurrentRequest = () =>
+      connectRequestIdRef.current === requestId && selectedVpsIdRef.current === vpsId;
 
     setConnectionStatus({ status: 'connecting' });
     setSystemStatus(null);
@@ -68,10 +79,28 @@ export default function ControlPanel() {
     setServices([]);
     setLogs([]);
 
+    const previousVpsId = connectedVpsIdRef.current;
+    if (previousVpsId && previousVpsId !== vpsId) {
+      try {
+        await disconnectVps(previousVpsId);
+      } catch {
+      }
+      if (connectedVpsIdRef.current === previousVpsId) {
+        connectedVpsIdRef.current = null;
+      }
+    }
+
+    if (!isCurrentRequest()) return;
+
     try {
       await connectVps(vpsId);
+      if (!isCurrentRequest()) {
+        return;
+      }
+      connectedVpsIdRef.current = vpsId;
       setConnectionStatus({ status: 'connected' });
     } catch (err) {
+      if (!isCurrentRequest()) return;
       const msg = err instanceof Error ? err.message : '连接失败';
       setConnectionStatus({ status: 'error', message: msg });
       setError(msg);
@@ -79,80 +108,108 @@ export default function ControlPanel() {
     }
 
     setLoadingStatus(true);
+    let loadedServices: ServiceStatus[] = [];
     try {
-      const [sys, net, svc] = await Promise.all([
+      const [sys, net, serviceStatuses] = await Promise.all([
         getSystemStatus(vpsId),
         getNetworkStats(vpsId),
         getAllServiceStatuses(vpsId),
       ]);
+      if (!isCurrentRequest()) return;
+      loadedServices = serviceStatuses;
       setSystemStatus(sys);
       setNetworkStats(net);
-      setServices(svc);
+      setServices(serviceStatuses);
     } catch (err) {
+      if (!isCurrentRequest()) return;
       setError(err instanceof Error ? err.message : '加载状态失败');
     } finally {
-      setLoadingStatus(false);
-    }
-
-    if (svc.length > 0) {
-      setLoadingLogs(true);
-      try {
-        const logLines = await getServiceLogs(vpsId, svc[0].protocol);
-        setLogs(logLines);
-      } catch {
-        setLogs(['Failed to load logs']);
-      } finally {
-        setLoadingLogs(false);
+      if (isCurrentRequest()) {
+        setLoadingStatus(false);
       }
     }
-  }, [connectionStatus]);
+
+    if (loadedServices.length > 0 && isCurrentRequest()) {
+      setLoadingLogs(true);
+      try {
+        const logLines = await getServiceLogs(vpsId, loadedServices[0].protocol);
+        if (isCurrentRequest()) {
+          setLogs(logLines);
+        }
+      } catch {
+        if (isCurrentRequest()) {
+          setLogs(['Failed to load logs']);
+        }
+      } finally {
+        if (isCurrentRequest()) {
+          setLoadingLogs(false);
+        }
+      }
+    }
+  }, []);
 
   const refreshData = useCallback(async () => {
     if (!selectedVpsId || connectionStatus.status !== 'connected') return;
 
+    const vpsId = selectedVpsId;
     setLoadingStatus(true);
     try {
       const [sys, net] = await Promise.all([
-        getSystemStatus(selectedVpsId),
-        getNetworkStats(selectedVpsId),
+        getSystemStatus(vpsId),
+        getNetworkStats(vpsId),
       ]);
+      if (selectedVpsIdRef.current !== vpsId) return;
       setSystemStatus(sys);
       setNetworkStats(net);
     } catch {
     } finally {
-      setLoadingStatus(false);
+      if (selectedVpsIdRef.current === vpsId) {
+        setLoadingStatus(false);
+      }
     }
-  }, [selectedVpsId, connectionStatus]);
+  }, [selectedVpsId, connectionStatus.status]);
 
   const refreshServices = useCallback(async () => {
     if (!selectedVpsId || connectionStatus.status !== 'connected') return;
 
+    const vpsId = selectedVpsId;
     setLoadingServices(true);
     try {
-      const svc = await getAllServiceStatuses(selectedVpsId);
+      const svc = await getAllServiceStatuses(vpsId);
+      if (selectedVpsIdRef.current !== vpsId) return;
       setServices(svc);
     } catch {
-      setServices([]);
+      if (selectedVpsIdRef.current === vpsId) {
+        setServices([]);
+      }
     } finally {
-      setLoadingServices(false);
+      if (selectedVpsIdRef.current === vpsId) {
+        setLoadingServices(false);
+      }
     }
-  }, [selectedVpsId, connectionStatus]);
+  }, [selectedVpsId, connectionStatus.status]);
 
   const refreshLogs = useCallback(async (protocol?: string) => {
     if (!selectedVpsId || connectionStatus.status !== 'connected') return;
 
+    const vpsId = selectedVpsId;
     const targetProtocol = protocol || (services.length > 0 ? services[0].protocol : 'vless-reality');
 
     setLoadingLogs(true);
     try {
-      const logLines = await getServiceLogs(selectedVpsId, targetProtocol);
+      const logLines = await getServiceLogs(vpsId, targetProtocol);
+      if (selectedVpsIdRef.current !== vpsId) return;
       setLogs(logLines);
     } catch {
-      setLogs(['Failed to load logs']);
+      if (selectedVpsIdRef.current === vpsId) {
+        setLogs(['Failed to load logs']);
+      }
     } finally {
-      setLoadingLogs(false);
+      if (selectedVpsIdRef.current === vpsId) {
+        setLoadingLogs(false);
+      }
     }
-  }, [selectedVpsId, connectionStatus, services]);
+  }, [selectedVpsId, connectionStatus.status, services]);
 
   useEffect(() => {
     void loadProfiles();
@@ -171,7 +228,7 @@ export default function ControlPanel() {
     }, REFRESH_INTERVAL);
 
     return () => clearInterval(interval);
-  }, [selectedVpsId, connectionStatus, refreshData]);
+  }, [selectedVpsId, connectionStatus.status, refreshData]);
 
   const handleServiceAction = async (
     action: 'restart' | 'start' | 'stop',

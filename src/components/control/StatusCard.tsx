@@ -110,12 +110,6 @@ function formatUptime(seconds: number): string {
   return `${minutes} 分钟`;
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B/s`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB/s`;
-  return `${(bytes / 1024 / 1024).toFixed(2)} MB/s`;
-}
-
 interface SystemStatusCardsProps {
   status: SystemStatus | null;
   loading?: boolean;

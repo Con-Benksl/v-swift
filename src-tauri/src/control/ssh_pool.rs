@@ -53,7 +53,9 @@ impl SshPool {
                 let mut statuses = self.statuses.lock().await;
                 statuses.insert(
                     vps_id.to_string(),
-                    ConnectionStatus::Error { message: err.to_string() },
+                    ConnectionStatus::Error {
+                        message: err.to_string(),
+                    },
                 );
                 return Err(err);
             }
@@ -72,7 +74,7 @@ impl SshPool {
         };
 
         if let Some(session) = session {
-            session.close().await?;
+            close_session(session).await?;
         }
 
         let mut statuses = self.statuses.lock().await;
@@ -88,14 +90,14 @@ impl SshPool {
         };
 
         for session in sessions {
-            if let Err(err) = session.close().await {
+            if let Err(err) = close_session(session).await {
                 log::warn!("disconnect_all: failed to close session: {err}");
             }
         }
 
         let mut statuses = self.statuses.lock().await;
-        for key in statuses.keys() {
-            statuses.insert(key.clone(), ConnectionStatus::Disconnected);
+        for status in statuses.values_mut() {
+            *status = ConnectionStatus::Disconnected;
         }
 
         Ok(())
@@ -107,6 +109,16 @@ impl SshPool {
             .get(vps_id)
             .cloned()
             .unwrap_or(ConnectionStatus::Disconnected)
+    }
+}
+
+async fn close_session(session: Arc<SshSession>) -> AppResult<()> {
+    match Arc::try_unwrap(session) {
+        Ok(session) => session.close().await,
+        Err(session) => {
+            drop(session);
+            Ok(())
+        }
     }
 }
 
