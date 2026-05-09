@@ -17,7 +17,7 @@ pub struct ServiceStatus {
 
 fn protocol_to_service(protocol: &str) -> &'static str {
     match protocol.to_lowercase().as_str() {
-        "vlessreality" | "vless" | "xray" | "reality" => "xray",
+        "vless-reality" | "vlessreality" | "vless" | "xray" | "reality" => "xray",
         "hysteria2" | "hy2" | "hysteria" => "hysteria2",
         _ => protocol,
     }

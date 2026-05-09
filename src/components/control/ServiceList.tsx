@@ -46,7 +46,7 @@ function ServiceRow({
             </span>
           </div>
           <p className="mt-1 text-xs text-slate-400">
-            端口 {service.port} ·{' '}
+            {service.port ? `端口 ${service.port} · ` : ''}
             {isRunning ? (
               <span className="text-emerald-600">运行中</span>
             ) : (

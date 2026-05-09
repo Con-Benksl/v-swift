@@ -25,7 +25,7 @@ export default function ControlPanel() {
   const [searchParams] = useSearchParams();
   const [profiles, setProfiles] = useState<VpsProfileSummary[]>([]);
   const [selectedVpsId, setSelectedVpsId] = useState<string | null>(null);
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({ status: 'disconnected' });
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [networkStats, setNetworkStats] = useState<NetworkStats | null>(null);
   const [services, setServices] = useState<ServiceStatus[]>([]);
@@ -62,7 +62,7 @@ export default function ControlPanel() {
       }
     }
 
-    setConnectionStatus('connecting');
+    setConnectionStatus({ status: 'connecting' });
     setSystemStatus(null);
     setNetworkStats(null);
     setServices([]);
@@ -70,10 +70,10 @@ export default function ControlPanel() {
 
     try {
       await connectVps(vpsId);
-      setConnectionStatus('connected');
+      setConnectionStatus({ status: 'connected' });
     } catch (err) {
       const msg = err instanceof Error ? err.message : '连接失败';
-      setConnectionStatus({ error: msg });
+      setConnectionStatus({ status: 'error', message: msg });
       setError(msg);
       return;
     }
@@ -164,7 +164,7 @@ export default function ControlPanel() {
   }, [selectedVpsId, connectAndLoadData]);
 
   useEffect(() => {
-    if (!selectedVpsId || connectionStatus !== 'connected') return;
+    if (!selectedVpsId || connectionStatus.status !== 'connected') return;
 
     const interval = setInterval(() => {
       void refreshData();
@@ -233,7 +233,7 @@ export default function ControlPanel() {
               <button
                 type="button"
                 onClick={() => void refreshData()}
-                disabled={loadingStatus || connectionStatus !== 'connected'}
+                disabled={loadingStatus || connectionStatus.status !== 'connected'}
                 className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
               >
                 {loadingStatus ? '刷新中...' : '刷新'}
@@ -278,7 +278,7 @@ export default function ControlPanel() {
               <button
                 type="button"
                 onClick={() => void refreshServices()}
-                disabled={loadingServices || connectionStatus !== 'connected'}
+                disabled={loadingServices || connectionStatus.status !== 'connected'}
                 className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 刷新服务
