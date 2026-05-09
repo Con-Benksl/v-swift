@@ -1,4 +1,5 @@
 import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom';
+import ControlPanel from './pages/ControlPanel';
 import NodeDetail from './pages/NodeDetail';
 import NewNodeWizard from './pages/NewNodeWizard';
 import NodeList from './pages/NodeList';
@@ -26,6 +27,9 @@ function TopBar() {
           <NavLink to="/" end className={linkClass}>
             节点列表
           </NavLink>
+          <NavLink to="/control" className={linkClass}>
+            控制面板
+          </NavLink>
           <NavLink to="/new" className={linkClass}>
             新建节点
           </NavLink>
@@ -43,6 +47,7 @@ export default function App() {
         <main className="pt-16">
           <Routes>
             <Route path="/" element={<NodeList />} />
+            <Route path="/control" element={<ControlPanel />} />
             <Route path="/new" element={<NewNodeWizard />} />
             <Route path="/nodes/:id" element={<NodeDetail />} />
           </Routes>

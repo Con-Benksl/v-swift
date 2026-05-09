@@ -10,6 +10,7 @@ pub mod scripts;
 pub mod commands;
 pub mod events;
 pub mod error;
+pub mod control;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -24,7 +25,10 @@ pub fn run() {
 
             let db_path = app_data_dir.join("nodes.db");
             let storage = storage::Storage::open(&db_path)?;
-            app.manage(commands::AppState { storage });
+            app.manage(commands::AppState {
+                storage,
+                ssh_pool: control::ssh_pool::SshPool::new(),
+            });
 
             Ok(())
         })
@@ -38,7 +42,17 @@ pub fn run() {
             commands::get_subscription,
             commands::uninstall_node,
             commands::forget_vps_profile,
-            commands::forget_orphan_vps_profiles
+            commands::forget_orphan_vps_profiles,
+            control::connect_vps,
+            control::disconnect_vps,
+            control::get_connection_status,
+            control::get_system_status,
+            control::get_network_stats,
+            control::get_service_status,
+            control::start_service,
+            control::stop_service,
+            control::restart_service,
+            control::get_service_logs
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

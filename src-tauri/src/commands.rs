@@ -5,6 +5,7 @@ use tauri::{AppHandle, State};
 use tokio::net::TcpStream;
 use tokio::time::{sleep, timeout, Duration};
 
+use crate::control::ssh_pool::SshPool;
 use crate::credentials;
 use crate::deploy::{
     self, DeployParams, NodeRecord, OsInfo, ProgressSink, ProtocolId, VpsProfileSummary,
@@ -18,6 +19,7 @@ use crate::subscription;
 
 pub struct AppState {
     pub storage: Storage,
+    pub ssh_pool: SshPool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
