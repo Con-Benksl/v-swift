@@ -139,6 +139,77 @@ pub fn list_vps_profiles(state: State<'_, AppState>) -> AppResult<Vec<VpsProfile
 }
 
 #[tauri::command]
+pub async fn update_vps_profile_host(
+    state: State<'_, AppState>,
+    id: String,
+    host: String,
+) -> AppResult<()> {
+    let host = host.trim();
+    if host.is_empty() {
+        return Err(AppError::Other("VPS IP 或域名不能为空".to_string()));
+    }
+
+    let profile = state.storage.get_vps_profile(&id)?;
+    let nodes_for_refresh = retarget_active_nodes_for_vps(state.storage.list()?, &id, host);
+
+    if let Err(err) = state.ssh_pool.disconnect(&id).await {
+        log::warn!(
+            "update_vps_profile_host: failed to close cached SSH session for {}: {}",
+            id,
+            err
+        );
+    }
+
+    let managed = if nodes_for_refresh.is_empty() {
+        None
+    } else {
+        let auth = load_saved_auth(&profile)?;
+        let credential = VpsCredential {
+            host: host.to_string(),
+            port: profile.ssh_port,
+            user: profile.ssh_user.clone(),
+            auth,
+        };
+
+        let ssh = SshSession::connect(&credential).await?;
+        let refresh_result =
+            remote_subscription::install_for_nodes(&ssh, host, &nodes_for_refresh, &SilentProgress)
+                .await;
+        let close_result = ssh.close().await;
+
+        match refresh_result {
+            Ok(managed) => {
+                close_result?;
+                Some(managed)
+            }
+            Err(err) => {
+                if let Err(close_err) = close_result {
+                    log::warn!(
+                        "update_vps_profile_host: SSH close failed after managed subscription refresh error for {}: {}",
+                        id,
+                        close_err
+                    );
+                }
+                return Err(err);
+            }
+        }
+    };
+
+    state.storage.update_vps_profile_host(&id, host)?;
+
+    if let Some(managed) = managed {
+        for mut node in nodes_for_refresh {
+            remote_subscription::apply_managed_subscription(&mut node, &managed);
+            state
+                .storage
+                .update_node_protocol_params(&node.id, &node.protocol_params)?;
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 pub fn get_node(state: State<'_, AppState>, id: String) -> AppResult<NodeRecord> {
     state.storage.get(&id)
 }
@@ -554,6 +625,21 @@ fn active_nodes_for_vps(storage: &Storage, vps_id: &str) -> AppResult<Vec<NodeRe
         .collect())
 }
 
+fn retarget_active_nodes_for_vps(
+    nodes: Vec<NodeRecord>,
+    vps_id: &str,
+    host: &str,
+) -> Vec<NodeRecord> {
+    nodes
+        .into_iter()
+        .filter(|node| node.vps_id == vps_id && node.status == "active")
+        .map(|mut node| {
+            node.host = host.to_string();
+            node
+        })
+        .collect()
+}
+
 async fn refresh_managed_subscription(
     progress: &dyn ProgressSink,
     storage: &Storage,
@@ -625,5 +711,54 @@ fn load_saved_auth(profile: &VpsProfileRecord) -> AppResult<crate::ssh::AuthMeth
             "已保存的 VPS「{}」缺少系统安全存储中的登录凭据。请切换到“新建连接”重新输入一次 SSH 信息，程序会自动补回这条凭据。",
             profile.name
         ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn node(id: &str, vps_id: &str, host: &str, status: &str) -> NodeRecord {
+        NodeRecord {
+            id: id.to_string(),
+            vps_id: vps_id.to_string(),
+            vps_name: "Test VPS".to_string(),
+            name: id.to_string(),
+            host: host.to_string(),
+            ssh_port: 22,
+            ssh_user: "root".to_string(),
+            protocol: ProtocolId::VlessReality,
+            protocol_params: json!({
+                "uuid": "123e4567-e89b-12d3-a456-426614174000",
+                "public_key": "pub",
+                "short_id": "abcd",
+                "port": 443,
+                "sni": "example.com"
+            }),
+            status: status.to_string(),
+            created_at: 0,
+        }
+    }
+
+    #[test]
+    fn retarget_active_nodes_for_vps_uses_new_host_and_ignores_inactive_nodes() {
+        let nodes = vec![
+            node("active-target", "vps-1", "198.51.100.10", "active"),
+            node("inactive-target", "vps-1", "198.51.100.10", "unknown"),
+            node("other-vps", "vps-2", "198.51.100.20", "active"),
+        ];
+
+        let retargeted = retarget_active_nodes_for_vps(nodes, "vps-1", "203.0.113.99");
+
+        assert_eq!(retargeted.len(), 1);
+        assert_eq!(retargeted[0].id, "active-target");
+        assert_eq!(retargeted[0].host, "203.0.113.99");
+
+        let yaml = remote_subscription::build_mihomo_config(&retargeted)
+            .expect("managed subscription config should build from retargeted nodes");
+        assert!(yaml.contains("server: \"203.0.113.99\""));
+        assert!(!yaml.contains("server: \"198.51.100.10\""));
     }
 }

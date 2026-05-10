@@ -38,6 +38,7 @@ pub fn run() {
             commands::deploy_node,
             commands::list_nodes,
             commands::list_vps_profiles,
+            commands::update_vps_profile_host,
             commands::get_node,
             commands::get_subscription,
             commands::uninstall_node,

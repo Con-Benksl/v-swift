@@ -109,6 +109,63 @@ impl Storage {
             .map_err(|e| AppError::Storage(e.to_string()))
     }
 
+    pub fn update_vps_profile_host(&self, id: &str, host: &str) -> AppResult<()> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Storage(e.to_string()))?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| AppError::Storage(e.to_string()))?;
+
+        let changed = tx
+            .execute(
+                "UPDATE vps_profiles SET host = ?2 WHERE id = ?1",
+                rusqlite::params![id, host],
+            )
+            .map_err(|e| AppError::Storage(e.to_string()))?;
+
+        if changed == 0 {
+            return Err(AppError::Storage(format!("VPS profile not found: {id}")));
+        }
+
+        let nodes = {
+            let mut stmt = tx
+                .prepare(
+                    "SELECT id, protocol_params
+                     FROM nodes
+                     WHERE vps_id = ?1",
+                )
+                .map_err(|e| AppError::Storage(e.to_string()))?;
+
+            let rows = stmt
+                .query_map([id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(|e| AppError::Storage(e.to_string()))?;
+
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|e| AppError::Storage(e.to_string()))?
+        };
+
+        for (node_id, protocol_params) in nodes {
+            let mut params: serde_json::Value = serde_json::from_str(&protocol_params)
+                .map_err(|e| AppError::Storage(e.to_string()))?;
+            sync_managed_subscription_host(&mut params, host);
+            let params =
+                serde_json::to_string(&params).map_err(|e| AppError::Storage(e.to_string()))?;
+
+            tx.execute(
+                "UPDATE nodes SET host = ?2, protocol_params = ?3 WHERE id = ?1",
+                rusqlite::params![node_id, host, params],
+            )
+            .map_err(|e| AppError::Storage(e.to_string()))?;
+        }
+
+        tx.commit().map_err(|e| AppError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
     pub fn list_vps_profiles(&self) -> AppResult<Vec<VpsProfileSummary>> {
         let conn = self
             .conn
@@ -528,6 +585,45 @@ fn map_node_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<NodeRecord> {
     })
 }
 
+fn sync_managed_subscription_host(params: &mut serde_json::Value, host: &str) {
+    let Some(managed) = params
+        .get_mut("managed_subscription")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+
+    let Some(port) = managed
+        .get("port")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|value| u16::try_from(value).ok())
+    else {
+        return;
+    };
+
+    let Some(token) = managed
+        .get("token")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return;
+    };
+
+    managed.insert(
+        "url".to_string(),
+        serde_json::Value::String(build_managed_subscription_url(host, port, token)),
+    );
+}
+
+fn build_managed_subscription_url(host: &str, port: u16, token: &str) -> String {
+    let host = if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]")
+    } else {
+        host.to_string()
+    };
+    format!("http://{host}:{port}/sub.yaml?token={token}")
+}
+
 fn normalize_timestamp(value: i64) -> i64 {
     if value > 0 && value < 1_000_000_000_000 {
         value.saturating_mul(1000)
@@ -767,5 +863,48 @@ mod tests {
 
         let loaded = storage.get("node-1").expect("node should load");
         assert_eq!(loaded.protocol_params, updated_params);
+    }
+
+    #[test]
+    fn test_update_vps_profile_host_syncs_nodes_and_managed_subscription_url() {
+        let path = std::env::temp_dir().join(format!("test_{}.db", uuid::Uuid::new_v4()));
+        let _guard = FileCleanupGuard { path: path.clone() };
+
+        let storage = Storage::open(&path).expect("open should succeed");
+        storage
+            .upsert_vps_profile(&test_profile("vps-1", "Tokyo VPS"))
+            .expect("profile insert should succeed");
+
+        let mut node = test_node("node-1", "vps-1", "Tokyo VPS", 1_700_000_000_000);
+        node.protocol_params = json!({
+            "uuid": "123e4567-e89b-12d3-a456-426614174000",
+            "public_key": "pub",
+            "short_id": "abcd",
+            "port": 443,
+            "sni": "example.com",
+            "managed_subscription": {
+                "url": "http://1.2.3.4:18080/sub.yaml?token=test-token",
+                "port": 18080,
+                "token": "test-token",
+                "updated_at": 1_700_000_010_000i64
+            }
+        });
+        storage.insert(&node).expect("insert should succeed");
+
+        storage
+            .update_vps_profile_host("vps-1", "203.0.113.99")
+            .expect("host update should succeed");
+
+        let profile = storage
+            .get_vps_profile("vps-1")
+            .expect("profile should load");
+        assert_eq!(profile.host, "203.0.113.99");
+
+        let loaded = storage.get("node-1").expect("node should load");
+        assert_eq!(loaded.host, "203.0.113.99");
+        assert_eq!(
+            loaded.protocol_params["managed_subscription"]["url"],
+            "http://203.0.113.99:18080/sub.yaml?token=test-token"
+        );
     }
 }

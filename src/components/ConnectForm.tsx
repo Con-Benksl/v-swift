@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { forgetOrphanVpsProfiles } from '../ipc';
+import { forgetOrphanVpsProfiles, updateVpsProfileHost } from '../ipc';
 import { OsInfo, VpsCredential, VpsProfileSummary } from '../ipc/types';
 
 export interface ConnectFormValue {
@@ -59,6 +59,10 @@ export default function ConnectForm({
 }: ConnectFormProps) {
   const [cleanupState, setCleanupState] = useState<'idle' | 'running' | 'err'>('idle');
   const [cleanupError, setCleanupError] = useState('');
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+  const [editingHost, setEditingHost] = useState('');
+  const [hostUpdateState, setHostUpdateState] = useState<'idle' | 'saving' | 'err'>('idle');
+  const [hostUpdateError, setHostUpdateError] = useState('');
 
   const handleCleanup = () => {
     setCleanupState('running');
@@ -89,6 +93,63 @@ export default function ConnectForm({
     }
     return '操作失败';
   }
+
+  const selectProfile = (profile: VpsProfileSummary) => {
+    onChange(
+      updateValue(value, {
+        mode: 'saved',
+        vpsProfileId: profile.id,
+        vpsName: value.vpsName.trim() ? value.vpsName : profile.name,
+      }),
+    );
+  };
+
+  const startHostEdit = (profile: VpsProfileSummary) => {
+    setEditingProfileId(profile.id);
+    setEditingHost(profile.host);
+    setHostUpdateState('idle');
+    setHostUpdateError('');
+  };
+
+  const cancelHostEdit = () => {
+    setEditingProfileId(null);
+    setEditingHost('');
+    setHostUpdateState('idle');
+    setHostUpdateError('');
+  };
+
+  const saveHostEdit = (profile: VpsProfileSummary) => {
+    const nextHost = editingHost.trim();
+    if (!nextHost) {
+      setHostUpdateState('err');
+      setHostUpdateError('VPS IP 或域名不能为空');
+      return;
+    }
+
+    if (nextHost === profile.host) {
+      cancelHostEdit();
+      return;
+    }
+
+    setHostUpdateState('saving');
+    setHostUpdateError('');
+
+    void updateVpsProfileHost(profile.id, nextHost)
+      .then(() => {
+        setEditingProfileId(null);
+        setEditingHost('');
+        setHostUpdateState('idle');
+        onProfilesRefresh?.();
+        if (value.mode === 'saved' && value.vpsProfileId === profile.id) {
+          onChange(updateValue(value, { mode: 'saved', vpsProfileId: profile.id }));
+        }
+      })
+      .catch((error) => {
+        setHostUpdateState('err');
+        setHostUpdateError(extractFriendlyError(error));
+      });
+  };
+
   const isPassword = value.auth.kind === 'password';
   const isPrivateKey = value.auth.kind === 'privateKey';
   const availableProfiles = profiles.filter((profile) => profile.credentialAvailable);
@@ -221,20 +282,11 @@ export default function ConnectForm({
                 <div className="grid gap-3">
                   {availableProfiles.map((profile) => {
                     const active = profile.id === value.vpsProfileId;
+                    const editing = editingProfileId === profile.id;
 
                     return (
-                      <button
+                      <div
                         key={profile.id}
-                        type="button"
-                        onClick={() =>
-                          onChange(
-                            updateValue(value, {
-                              mode: 'saved',
-                              vpsProfileId: profile.id,
-                              vpsName: value.vpsName.trim() ? value.vpsName : profile.name,
-                            }),
-                          )
-                        }
                         className={`rounded-3xl border p-4 text-left transition ${
                           active
                             ? 'border-blue-500 bg-blue-50 shadow-sm shadow-blue-100/80'
@@ -253,20 +305,65 @@ export default function ConnectForm({
                               {profile.host}:{profile.sshPort} · {profile.sshUser}
                             </p>
                           </div>
-                          <span
-                            className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                              active
-                                ? 'bg-blue-600 text-white'
-                                : 'border border-slate-200 bg-white text-slate-500'
-                            }`}
-                          >
-                            {active ? '当前选择' : '可复用'}
-                          </span>
+                          <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => selectProfile(profile)}
+                              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                                active
+                                  ? 'bg-blue-600 text-white'
+                                  : 'border border-slate-200 bg-white text-slate-500 hover:border-blue-300 hover:text-blue-700'
+                              }`}
+                            >
+                              {active ? '当前选择' : '选择'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => startHostEdit(profile)}
+                              className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-blue-300 hover:text-blue-700"
+                            >
+                              修改 IP
+                            </button>
+                          </div>
                         </div>
+                        {editing ? (
+                          <div className="mt-4 rounded-2xl border border-blue-200 bg-white px-4 py-4">
+                            <label className="block">
+                              <span className={labelClass}>新的服务器 IP / 域名</span>
+                              <input
+                                className={fieldClass}
+                                value={editingHost}
+                                onChange={(event) => setEditingHost(event.target.value)}
+                                placeholder={profile.host}
+                              />
+                            </label>
+                            {hostUpdateState === 'err' && hostUpdateError ? (
+                              <p className="mt-3 text-xs text-rose-700">{hostUpdateError}</p>
+                            ) : null}
+                            <div className="mt-4 flex flex-wrap justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={cancelHostEdit}
+                                disabled={hostUpdateState === 'saving'}
+                                className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                取消
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => saveHostEdit(profile)}
+                                disabled={hostUpdateState === 'saving'}
+                                className="rounded-2xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-300"
+                              >
+                                {hostUpdateState === 'saving' ? '保存中...' : '保存 IP'}
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
                         <p className="mt-3 text-xs text-slate-400">
                           保存于 {formatSavedTime(profile.createdAt)}
                         </p>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>

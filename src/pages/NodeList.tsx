@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import UpdateControl from '../components/UpdateControl';
-import { listNodes } from '../ipc';
+import { listNodes, updateVpsProfileHost } from '../ipc';
 import { NodeRecord } from '../ipc/types';
 
 interface VpsNodeGroup {
@@ -56,6 +56,11 @@ export default function NodeList() {
   const [nodes, setNodes] = useState<NodeRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [refreshTick, setRefreshTick] = useState(0);
+  const [editingVpsId, setEditingVpsId] = useState<string | null>(null);
+  const [editingHost, setEditingHost] = useState('');
+  const [hostUpdateState, setHostUpdateState] = useState<'idle' | 'saving' | 'err'>('idle');
+  const [hostUpdateError, setHostUpdateError] = useState('');
 
   const vpsId = useCallback(
     (group: VpsNodeGroup) =>
@@ -65,6 +70,9 @@ export default function NodeList() {
 
   useEffect(() => {
     let cancelled = false;
+
+    setLoading(true);
+    setError('');
 
     void listNodes()
       .then((records) => {
@@ -92,7 +100,64 @@ export default function NodeList() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshTick]);
+
+  const startHostEdit = (group: VpsNodeGroup) => {
+    setEditingVpsId(group.id);
+    setEditingHost(group.host);
+    setHostUpdateState('idle');
+    setHostUpdateError('');
+  };
+
+  const cancelHostEdit = () => {
+    setEditingVpsId(null);
+    setEditingHost('');
+    setHostUpdateState('idle');
+    setHostUpdateError('');
+  };
+
+  const extractFriendlyError = (err: unknown): string => {
+    if (err instanceof Error && err.message) return err.message;
+    if (typeof err === 'string' && err) return err;
+    if (err && typeof err === 'object') {
+      const obj = err as Record<string, unknown>;
+      const msg = obj.message;
+      if (typeof msg === 'string' && msg) return msg;
+      if (msg && typeof msg === 'object') {
+        const inner = msg as Record<string, unknown>;
+        if (typeof inner.message === 'string' && inner.message) return inner.message;
+      }
+      if (typeof obj.kind === 'string' && obj.kind) return obj.kind;
+    }
+    return '操作失败';
+  };
+
+  const saveHostEdit = (group: VpsNodeGroup) => {
+    const nextHost = editingHost.trim();
+    if (!nextHost) {
+      setHostUpdateState('err');
+      setHostUpdateError('VPS IP 或域名不能为空');
+      return;
+    }
+
+    if (nextHost === group.host) {
+      cancelHostEdit();
+      return;
+    }
+
+    setHostUpdateState('saving');
+    setHostUpdateError('');
+
+    void updateVpsProfileHost(group.id, nextHost)
+      .then(() => {
+        cancelHostEdit();
+        setRefreshTick((value) => value + 1);
+      })
+      .catch((err) => {
+        setHostUpdateState('err');
+        setHostUpdateError(extractFriendlyError(err));
+      });
+  };
 
   const groups = useMemo<VpsNodeGroup[]>(() => {
     const map = new Map<string, VpsNodeGroup>();
@@ -223,8 +288,50 @@ export default function NodeList() {
                       >
                         控制面板
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => startHostEdit(group)}
+                        className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-300 hover:text-blue-700"
+                      >
+                        修改 IP
+                      </button>
                     </div>
                   </div>
+
+                  {editingVpsId === group.id ? (
+                    <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4">
+                      <label className="block">
+                        <span className="text-sm font-medium text-blue-900">新的服务器 IP / 域名</span>
+                        <input
+                          className="mt-2 w-full rounded-2xl border border-blue-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                          value={editingHost}
+                          onChange={(event) => setEditingHost(event.target.value)}
+                          placeholder={group.host}
+                        />
+                      </label>
+                      {hostUpdateState === 'err' && hostUpdateError ? (
+                        <p className="mt-3 text-xs text-rose-700">{hostUpdateError}</p>
+                      ) : null}
+                      <div className="mt-4 flex flex-wrap justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={cancelHostEdit}
+                          disabled={hostUpdateState === 'saving'}
+                          className="rounded-2xl border border-blue-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          取消
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => saveHostEdit(group)}
+                          disabled={hostUpdateState === 'saving'}
+                          className="rounded-2xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-300"
+                        >
+                          {hostUpdateState === 'saving' ? '保存中...' : '保存 IP'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
 
                   <div className="mt-5 grid gap-3">
                     {group.nodes.map((node) => {

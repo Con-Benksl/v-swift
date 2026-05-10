@@ -41,6 +41,10 @@ export async function listVpsProfiles(): Promise<VpsProfileSummary[]> {
   return invoke<VpsProfileSummary[]>('list_vps_profiles');
 }
 
+export async function updateVpsProfileHost(id: string, host: string): Promise<void> {
+  await invoke('update_vps_profile_host', { id, host });
+}
+
 export async function getNode(id: string): Promise<NodeRecord> {
   return invoke<NodeRecord>('get_node', { id });
 }
