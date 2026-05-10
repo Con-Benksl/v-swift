@@ -16,6 +16,7 @@ import {
   stopService,
 } from '../ipc/control';
 import { listVpsProfiles } from '../ipc';
+import { extractIpcErrorMessage } from '../ipc/errors';
 import { VpsProfileSummary } from '../ipc/types';
 import { SystemStatusCards, NetworkRateCard, ServiceList, LogViewer, VpsSelector } from '../components/control';
 
@@ -51,7 +52,7 @@ export default function ControlPanel() {
         return current;
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载 VPS 列表失败');
+      setError(extractIpcErrorMessage(err, '加载 VPS 列表失败'));
     } finally {
       setLoadingProfiles(false);
     }
@@ -101,7 +102,7 @@ export default function ControlPanel() {
       setConnectionStatus({ status: 'connected' });
     } catch (err) {
       if (!isCurrentRequest()) return;
-      const msg = err instanceof Error ? err.message : '连接失败';
+      const msg = extractIpcErrorMessage(err, '连接失败');
       setConnectionStatus({ status: 'error', message: msg });
       setError(msg);
       return;
@@ -122,7 +123,7 @@ export default function ControlPanel() {
       setServices(serviceStatuses);
     } catch (err) {
       if (!isCurrentRequest()) return;
-      setError(err instanceof Error ? err.message : '加载状态失败');
+      setError(extractIpcErrorMessage(err, '加载状态失败'));
     } finally {
       if (isCurrentRequest()) {
         setLoadingStatus(false);
@@ -136,9 +137,11 @@ export default function ControlPanel() {
         if (isCurrentRequest()) {
           setLogs(logLines);
         }
-      } catch {
+      } catch (err) {
         if (isCurrentRequest()) {
-          setLogs(['Failed to load logs']);
+          const msg = extractIpcErrorMessage(err, '加载日志失败');
+          setLogs([msg]);
+          setError(msg);
         }
       } finally {
         if (isCurrentRequest()) {
@@ -161,7 +164,10 @@ export default function ControlPanel() {
       if (selectedVpsIdRef.current !== vpsId) return;
       setSystemStatus(sys);
       setNetworkStats(net);
-    } catch {
+    } catch (err) {
+      if (selectedVpsIdRef.current === vpsId) {
+        setError(extractIpcErrorMessage(err, '加载状态失败'));
+      }
     } finally {
       if (selectedVpsIdRef.current === vpsId) {
         setLoadingStatus(false);
@@ -178,9 +184,10 @@ export default function ControlPanel() {
       const svc = await getAllServiceStatuses(vpsId);
       if (selectedVpsIdRef.current !== vpsId) return;
       setServices(svc);
-    } catch {
+    } catch (err) {
       if (selectedVpsIdRef.current === vpsId) {
         setServices([]);
+        setError(extractIpcErrorMessage(err, '加载服务状态失败'));
       }
     } finally {
       if (selectedVpsIdRef.current === vpsId) {
@@ -200,9 +207,11 @@ export default function ControlPanel() {
       const logLines = await getServiceLogs(vpsId, targetProtocol);
       if (selectedVpsIdRef.current !== vpsId) return;
       setLogs(logLines);
-    } catch {
+    } catch (err) {
       if (selectedVpsIdRef.current === vpsId) {
-        setLogs(['Failed to load logs']);
+        const msg = extractIpcErrorMessage(err, '加载日志失败');
+        setLogs([msg]);
+        setError(msg);
       }
     } finally {
       if (selectedVpsIdRef.current === vpsId) {
@@ -249,7 +258,7 @@ export default function ControlPanel() {
       await refreshServices();
       await refreshLogs();
     } catch (err) {
-      setError(err instanceof Error ? err.message : '操作失败');
+      setError(extractIpcErrorMessage(err, '操作失败'));
     } finally {
       setActionLoading(null);
     }

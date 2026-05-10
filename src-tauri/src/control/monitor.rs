@@ -4,7 +4,7 @@ use crate::ssh::{ExecOutput, SshSession};
 
 pub async fn get_system_status(ssh: &SshSession) -> AppResult<SystemStatus> {
     let (cpu_result, mem_result, disk_result, uptime_result) = tokio::join!(
-        ssh.exec("top -bn1 | grep 'Cpu(s)' | awk '{print $2}'"),
+        ssh.exec("sh -c 'cat /proc/stat; sleep 0.2; cat /proc/stat'"),
         ssh.exec("free -m | grep Mem"),
         ssh.exec("df -h / | tail -1"),
         ssh.exec("cat /proc/uptime | awk '{print $1}'"),
@@ -84,7 +84,56 @@ fn parse_cpu_usage(result: ExecOutput) -> f64 {
     if result.exit_code != 0 {
         return 0.0;
     }
-    result.stdout.trim().parse::<f64>().unwrap_or(0.0)
+
+    let mut samples = result.stdout.lines().filter_map(parse_proc_stat_cpu_line);
+    let Some(first) = samples.next() else {
+        return 0.0;
+    };
+    let Some(second) = samples.next() else {
+        return 0.0;
+    };
+
+    calculate_cpu_usage_percent(first, second)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CpuSample {
+    idle: u64,
+    total: u64,
+}
+
+fn parse_proc_stat_cpu_line(line: &str) -> Option<CpuSample> {
+    let mut parts = line.split_whitespace();
+    if parts.next()? != "cpu" {
+        return None;
+    }
+
+    let values: Vec<u64> = parts.map(str::parse).collect::<Result<_, _>>().ok()?;
+    if values.len() < 4 {
+        return None;
+    }
+
+    let idle = values[3] + values.get(4).copied().unwrap_or(0);
+    let total = values.iter().sum();
+
+    Some(CpuSample { idle, total })
+}
+
+fn calculate_cpu_usage_percent(first: CpuSample, second: CpuSample) -> f64 {
+    let Some(total_delta) = second.total.checked_sub(first.total) else {
+        return 0.0;
+    };
+    if total_delta == 0 {
+        return 0.0;
+    }
+
+    let first_busy = first.total.saturating_sub(first.idle);
+    let second_busy = second.total.saturating_sub(second.idle);
+    let Some(busy_delta) = second_busy.checked_sub(first_busy) else {
+        return 0.0;
+    };
+
+    ((busy_delta as f64 / total_delta as f64) * 100.0).clamp(0.0, 100.0)
 }
 
 fn parse_memory(result: ExecOutput) -> (u64, u64, u64, u64) {
@@ -148,4 +197,37 @@ fn parse_uptime(result: ExecOutput) -> f64 {
         return 0.0;
     }
     result.stdout.trim().parse::<f64>().unwrap_or(0.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn exec_output(stdout: &str) -> ExecOutput {
+        ExecOutput {
+            stdout: stdout.to_string(),
+            stderr: String::new(),
+            exit_code: 0,
+        }
+    }
+
+    #[test]
+    fn parse_cpu_usage_calculates_total_busy_delta_from_proc_stat_samples() {
+        let result = exec_output(
+            "cpu  100 20 30 850 0 0 0 0 0 0\n\
+             cpu  125 20 45 910 0 0 0 0 0 0\n",
+        );
+
+        assert_eq!(parse_cpu_usage(result), 40.0);
+    }
+
+    #[test]
+    fn parse_cpu_usage_returns_zero_for_invalid_proc_stat_samples() {
+        let result = exec_output(
+            "not-cpu  100 20 30 850 0 0 0 0 0 0\n\
+             cpu  invalid 20 45 910 0 0 0 0 0 0\n",
+        );
+
+        assert_eq!(parse_cpu_usage(result), 0.0);
+    }
 }

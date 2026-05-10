@@ -19,7 +19,7 @@ fn protocol_to_service(protocol: &str) -> AppResult<&'static str> {
     let normalized = protocol.to_lowercase();
     match normalized.as_str() {
         "vless-reality" | "vlessreality" | "vless" | "xray" | "reality" => Ok("xray"),
-        "hysteria2" | "hy2" | "hysteria" => Ok("hysteria2"),
+        "hysteria2" | "hy2" | "hysteria" => Ok("hysteria-server"),
         _ => Err(AppError::Other(format!(
             "unsupported service protocol: {protocol}"
         ))),
@@ -230,6 +230,13 @@ pub async fn get_service_logs(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn protocol_to_service_maps_hysteria2_aliases_to_systemd_unit() {
+        for protocol in ["hysteria2", "hy2", "hysteria"] {
+            assert_eq!(protocol_to_service(protocol).unwrap(), "hysteria-server");
+        }
+    }
 
     #[test]
     fn protocol_to_service_rejects_unknown_protocols() {
