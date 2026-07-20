@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ConnectForm, { ConnectFormValue } from '../components/ConnectForm';
 import DeployProgress from '../components/DeployProgress';
 import ProtocolPicker, { ProtocolPickerValue } from '../components/ProtocolPicker';
 import SubscriptionView from '../components/SubscriptionView';
+import { Button, Callout, PageShell, SectionHeader, Spinner } from '../components/ui';
 import { detectOs, getSubscription, listVpsProfiles, testConnection } from '../ipc';
-import { mapConnectionError } from '../ipc/errors';
+import { extractUnknownSshHostKey, mapConnectionError } from '../ipc/errors';
+import { isValidNodeName, isValidSni } from '../lib';
+import { useDeploymentActivity } from '../lib/deploymentActivity';
 import {
   ConnectionTarget,
   DeployEvent,
@@ -76,10 +79,178 @@ function buildConnectionTarget(value: ConnectFormValue): ConnectionTarget {
   return { credential: buildManualCredential(value) };
 }
 
+function sameConnectionInput(left: ConnectFormValue, right: ConnectFormValue): boolean {
+  if (left.mode !== right.mode || left.vpsName !== right.vpsName) {
+    return false;
+  }
+
+  if (left.mode === 'saved' || right.mode === 'saved') {
+    return left.vpsProfileId === right.vpsProfileId;
+  }
+
+  if (
+    left.host !== right.host ||
+    left.port !== right.port ||
+    left.user !== right.user ||
+    left.auth.kind !== right.auth.kind
+  ) {
+    return false;
+  }
+
+  if (left.auth.kind === 'password' && right.auth.kind === 'password') {
+    return left.auth.password === right.auth.password;
+  }
+
+  if (left.auth.kind === 'privateKey' && right.auth.kind === 'privateKey') {
+    return left.auth.key === right.auth.key && left.auth.passphrase === right.auth.passphrase;
+  }
+
+  return false;
+}
+
+/** 细条式步骤指示器：小圆点（序号/对勾）+ 连接线 + 当前步高亮，已完成步可点击回退 */
+function WizardStepper({
+  step,
+  locked,
+  onStepBack,
+}: {
+  step: number;
+  locked: boolean;
+  onStepBack: (target: number) => void;
+}) {
+  return (
+    <ol className="flex items-center">
+      {steps.map((item, index) => {
+        const active = item.id === step;
+        const completed = item.id < step;
+        const canGoBack = completed && !locked && item.id !== 2;
+
+        return (
+          <li key={item.id} className="flex min-w-0 flex-1 items-center last:flex-none">
+            <button
+              type="button"
+              disabled={!canGoBack}
+              onClick={() => {
+                if (canGoBack) {
+                  onStepBack(item.id);
+                }
+              }}
+              title={
+                locked && completed
+                  ? '当前任务完成前暂不能返回'
+                  : completed && item.id === 2
+                    ? '部署已完成；如需重新部署，请先返回协议设置'
+                    : canGoBack
+                      ? `返回「${item.title}」`
+                      : item.title
+              }
+              className={`group flex items-center gap-2 rounded-control px-1 py-1 text-left ${
+                canGoBack ? 'cursor-pointer' : 'cursor-default'
+              }`}
+            >
+              <span
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition ${
+                  active
+                    ? 'bg-brand-600 text-white dark:bg-brand-500'
+                    : completed
+                      ? `bg-brand-50 text-brand-600 ring-1 ring-inset ring-brand-500 dark:bg-brand-500/10 dark:text-brand-300 dark:ring-brand-400 ${
+                          canGoBack
+                            ? 'group-hover:bg-brand-100 dark:group-hover:bg-brand-500/20'
+                            : ''
+                        }`
+                      : 'bg-surface-100 text-surface-500 dark:bg-surface-800 dark:text-surface-400'
+                }`}
+              >
+                {completed ? (
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                    className="h-3.5 w-3.5"
+                  >
+                    <path d="m5 12.5 4.5 4.5L19 7.5" />
+                  </svg>
+                ) : (
+                  item.id + 1
+                )}
+              </span>
+              <span
+                className={`hidden whitespace-nowrap text-sm sm:inline ${
+                  active
+                    ? 'font-semibold text-brand-600 dark:text-brand-300'
+                    : completed
+                      ? `font-medium text-surface-700 dark:text-surface-300 ${
+                          canGoBack
+                            ? 'group-hover:text-brand-600 dark:group-hover:text-brand-300'
+                            : ''
+                        }`
+                      : 'text-surface-500 dark:text-surface-400'
+                }`}
+              >
+                {item.title}
+              </span>
+            </button>
+            {index < steps.length - 1 ? (
+              <span
+                aria-hidden="true"
+                className={`mx-3 h-px min-w-4 flex-1 ${
+                  item.id < step ? 'bg-brand-400 dark:bg-brand-500' : 'bg-surface-200 dark:bg-surface-700'
+                }`}
+              />
+            ) : null}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** 步骤切换过渡：挂载时从 opacity-0/translate-y-2 过渡到位 */
+function StepTransition({ children }: { children: ReactNode }) {
+  const [entered, setEntered] = useState(false);
+
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setEntered(true));
+    });
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return (
+    <div
+      className={`transition-all duration-200 ease-out ${
+        entered ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0'
+      }`}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** 每步底部统一操作条：左侧上一步（secondary），右侧下一步/开始部署（primary） */
+function WizardActions({ left, right }: { left?: ReactNode; right?: ReactNode }) {
+  return (
+    <div className="mt-6 flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3">{left}</div>
+      <div className="flex items-center gap-3">{right}</div>
+    </div>
+  );
+}
+
 export default function NewNodeWizard() {
   const navigate = useNavigate();
+  const {
+    acquire: acquireDeploymentActivity,
+    release: releaseDeploymentActivity,
+  } = useDeploymentActivity();
   const [step, setStep] = useState(0);
   const [credential, setCredential] = useState<ConnectFormValue>(baseCredential);
+  const credentialRef = useRef(credential);
+  const connectionTestRequestIdRef = useRef(0);
   const [protocol, setProtocol] = useState<ProtocolPickerValue>(baseProtocol);
   const [profiles, setProfiles] = useState<VpsProfileSummary[]>([]);
   const [profilesLoading, setProfilesLoading] = useState(true);
@@ -95,8 +266,16 @@ export default function NewNodeWizard() {
   const [subscription, setSubscription] = useState<SubscriptionResult | null>(null);
   const [subscriptionLoading, setSubscriptionLoading] = useState(false);
   const [subscriptionError, setSubscriptionError] = useState('');
+  const [deploymentRunning, setDeploymentRunning] = useState(false);
 
   const [profilesRefreshTick, setProfilesRefreshTick] = useState(0);
+  credentialRef.current = credential;
+
+  useEffect(() => {
+    return () => {
+      connectionTestRequestIdRef.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -111,28 +290,39 @@ export default function NewNodeWizard() {
         }
 
         setProfiles(records);
-        setCredential((prev) => {
-          const availableProfiles = records.filter((item) => item.credentialAvailable);
+        const currentCredential = credentialRef.current;
+        let nextCredential = currentCredential;
+        const availableProfiles = records.filter((item) => item.credentialAvailable);
 
-          if (availableProfiles.length === 0) {
-            return prev.mode === 'saved'
-              ? { ...prev, mode: 'manual', vpsProfileId: undefined }
-              : prev;
+        if (availableProfiles.length === 0) {
+          if (currentCredential.mode === 'saved') {
+            nextCredential = {
+              ...currentCredential,
+              mode: 'manual',
+              vpsProfileId: undefined,
+            };
           }
-
-          if (prev.mode !== 'saved') {
-            return prev;
-          }
-
+        } else if (currentCredential.mode === 'saved') {
           const selected =
-            availableProfiles.find((item) => item.id === prev.vpsProfileId) ??
+            availableProfiles.find((item) => item.id === currentCredential.vpsProfileId) ??
             availableProfiles[0];
-          return {
-            ...prev,
+          nextCredential = {
+            ...currentCredential,
             vpsProfileId: selected.id,
-            vpsName: prev.vpsName.trim() ? prev.vpsName : selected.name,
+            vpsName: currentCredential.vpsName.trim()
+              ? currentCredential.vpsName
+              : selected.name,
           };
-        });
+        }
+
+        if (!sameConnectionInput(currentCredential, nextCredential)) {
+          connectionTestRequestIdRef.current += 1;
+          credentialRef.current = nextCredential;
+          setCredential(nextCredential);
+          setTestState('idle');
+          setTestError('');
+          setOsInfo(null);
+        }
       })
       .catch((error) => {
         if (!cancelled) {
@@ -169,16 +359,23 @@ export default function NewNodeWizard() {
     !!credential.vpsName.trim() &&
     (credential.mode === 'saved'
       ? !!credential.vpsProfileId
-      : !!credential.host.trim() && !!credential.user.trim() && credential.port > 0);
+      : !!credential.host.trim() &&
+        !!credential.user.trim() &&
+        Number.isInteger(credential.port) &&
+        credential.port >= 1 &&
+        credential.port <= 65535);
 
   const minProtocolPort = 1;
   const protocolValid =
-    !!protocol.nodeName.trim() &&
+    isValidNodeName(protocol.nodeName) &&
+    Number.isInteger(protocol.port) &&
     protocol.port >= minProtocolPort &&
     protocol.port <= 65535 &&
-    (protocol.protocol !== 'vless-reality' || !!protocol.sni.trim());
+    (protocol.protocol !== 'vless-reality' || isValidSni(protocol.sni));
 
   const handleCredentialChange = (nextValue: ConnectFormValue) => {
+    credentialRef.current = nextValue;
+    connectionTestRequestIdRef.current += 1;
     setCredential(nextValue);
     setTestState('idle');
     setTestError('');
@@ -205,19 +402,73 @@ export default function NewNodeWizard() {
   };
 
   const handleTestConnection = () => {
+    if (
+      credential.mode === 'manual' &&
+      (!Number.isInteger(credential.port) || credential.port < 1 || credential.port > 65535)
+    ) {
+      connectionTestRequestIdRef.current += 1;
+      setTestState('err');
+      setTestError('SSH 端口必须是 1 到 65535 之间的整数。');
+      setOsInfo(null);
+      return;
+    }
+
+    const requestId = connectionTestRequestIdRef.current + 1;
+    connectionTestRequestIdRef.current = requestId;
+    const credentialSnapshot = credential;
+    const target = buildConnectionTarget(credentialSnapshot);
+    const isCurrentRequest = () =>
+      connectionTestRequestIdRef.current === requestId &&
+      sameConnectionInput(credentialSnapshot, credentialRef.current);
+
     setTestState('loading');
     setTestError('');
     setOsInfo(null);
 
-    const target = buildConnectionTarget(credential);
+    const testAndDetect = async () => {
+      try {
+        await testConnection(target);
+      } catch (error) {
+        const unknownKey = extractUnknownSshHostKey(error);
+        if (!unknownKey || !isCurrentRequest()) {
+          throw error;
+        }
 
-    void testConnection(target)
-      .then(() => detectOs(target))
+        const confirmed = window.confirm(
+          `首次连接 ${unknownKey.host}:${unknownKey.port}\n\n` +
+            `SSH 主机密钥：${unknownKey.algorithm}\n` +
+            `指纹：${unknownKey.fingerprint}\n\n` +
+            '请先通过云厂商控制台或其他可信渠道核对指纹。只有确认一致后，点击“确定”才会写入 known_hosts。',
+        );
+        if (!confirmed) {
+          throw new Error('已取消信任新的 SSH 主机密钥。');
+        }
+        if (!isCurrentRequest()) return null;
+        await testConnection({
+          ...target,
+          acceptNewHostKey: true,
+          expectedHostKey: {
+            algorithm: unknownKey.algorithm,
+            fingerprint: unknownKey.fingerprint,
+          },
+        });
+      }
+
+      return isCurrentRequest() ? detectOs(target) : null;
+    };
+
+    void testAndDetect()
       .then((info) => {
+        if (!info || !isCurrentRequest()) {
+          return;
+        }
         setOsInfo(info);
         setTestState('ok');
       })
       .catch((error) => {
+        if (!isCurrentRequest()) {
+          return;
+        }
         setTestError(mapConnectionError(error));
         setTestState('err');
       });
@@ -234,12 +485,12 @@ export default function NewNodeWizard() {
     if (event.kind === 'error') {
       setCurrentStep(event.step);
       setErrorMsg(event.message);
+      setDeploymentRunning(false);
     }
   };
 
-  const handleDeployComplete = (record: NodeRecord) => {
-    setNode(record);
-    setCurrentStep('done');
+  /** 拉取订阅：成功进入步骤 4，失败停留在部署区并给出重试/跳过并完成 */
+  const fetchSubscription = (record: NodeRecord) => {
     setSubscriptionLoading(true);
     setSubscriptionError('');
 
@@ -256,7 +507,15 @@ export default function NewNodeWizard() {
       });
   };
 
-  const restartDeploy = () => {
+  const handleDeployComplete = (record: NodeRecord) => {
+    setDeploymentRunning(false);
+    setNode(record);
+    setCurrentStep('done');
+    fetchSubscription(record);
+  };
+
+  /** 部署状态重置的唯一入口（开始部署与重新部署共用，避免两份拷贝漂移） */
+  const resetDeployState = () => {
     setEvents([]);
     setCurrentStep('');
     setErrorMsg('');
@@ -264,188 +523,194 @@ export default function NewNodeWizard() {
     setSubscription(null);
     setSubscriptionError('');
     setSubscriptionLoading(false);
+    setDeploymentRunning(false);
     setDeployAttempt((value) => value + 1);
   };
 
+  const restartDeploy = () => {
+    resetDeployState();
+    setDeploymentRunning(true);
+  };
+
+  const startDeploy = () => {
+    resetDeployState();
+    setDeploymentRunning(true);
+    setStep(2);
+  };
+
+  const wizardNavigationLocked = deploymentRunning || subscriptionLoading;
+
+  useEffect(() => {
+    if (!wizardNavigationLocked) {
+      return;
+    }
+
+    const lease = acquireDeploymentActivity();
+    return () => releaseDeploymentActivity(lease);
+  }, [acquireDeploymentActivity, releaseDeploymentActivity, wizardNavigationLocked]);
+
+  /** 已完成的部署步骤不可直接回跳，避免“查看进度”实际触发新的远端部署。 */
+  const handleStepBack = (target: number) => {
+    if (wizardNavigationLocked || target === 2) {
+      return;
+    }
+    setStep(target);
+  };
+
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(37,99,235,0.16),_transparent_32%),linear-gradient(180deg,_#f8fafc_0%,_#dbeafe_55%,_#eff6ff_100%)] px-6 py-8">
-      <div className="mx-auto max-w-6xl">
-        <section className="rounded-[2rem] border border-white/70 bg-white/80 p-8 shadow-xl shadow-blue-200/30 backdrop-blur">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-600">
-                部署向导
-              </p>
-              <h1 className="mt-2 text-4xl font-semibold tracking-tight text-slate-950">新建节点</h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-500">
-                先选择或复用一台 VPS，再单独为本次协议实例命名并自动部署。
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => navigate('/')}
-              className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-blue-300 hover:text-blue-700"
-            >
-              返回列表
-            </button>
-          </div>
+    <PageShell width="lg">
+      <SectionHeader
+        eyebrow="部署向导"
+        title="新建节点"
+        description="先选择或复用一台 VPS，再单独为本次协议实例命名并自动部署。"
+        actions={
+          <Button
+            variant="secondary"
+            onClick={() => navigate('/')}
+            disabled={wizardNavigationLocked}
+          >
+            返回列表
+          </Button>
+        }
+      />
 
-          <div className="mt-8 grid gap-4 lg:grid-cols-4">
-            {steps.map((item) => {
-              const active = item.id === step;
-              const completed = item.id < step;
-
-              return (
-                <div
-                  key={item.id}
-                  className={`rounded-3xl border px-4 py-4 transition ${
-                    active
-                      ? 'border-blue-500 bg-blue-600 text-white shadow-lg shadow-blue-600/20'
-                      : completed
-                        ? 'border-blue-200 bg-blue-50 text-blue-800'
-                        : 'border-slate-200 bg-slate-50 text-slate-500'
-                  }`}
-                >
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em]">
-                    {completed ? '已完成' : active ? '进行中' : '待处理'}
-                  </p>
-                  <div className="mt-3 flex items-center gap-3">
-                    <span
-                      className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold ${
-                        active
-                          ? 'bg-white/15 text-white'
-                          : completed
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-white text-slate-400'
-                      }`}
-                    >
-                      {completed ? '✓' : item.id + 1}
-                    </span>
-                    <span className="text-sm font-medium">{item.title}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        <div className="mt-8">
-          {step === 0 ? (
-            <div className="space-y-6">
-              <ConnectForm
-                value={credential}
-                profiles={profiles}
-                profilesLoading={profilesLoading}
-                profilesError={profilesError}
-                onChange={handleCredentialChange}
-                onTestConnection={handleTestConnection}
-                testState={testState}
-                testError={testError}
-                osInfo={osInfo}
-                onProfilesRefresh={() => setProfilesRefreshTick((value) => value + 1)}
-              />
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => setStep(1)}
-                  disabled={!canContinueFromConnect}
-                  className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
-                  下一步：命名节点
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          {step === 1 ? (
-            <div className="space-y-6">
-              <ProtocolPicker value={protocol} onChange={handleProtocolChange} />
-              <div className="flex flex-wrap justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={() => setStep(0)}
-                  className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-blue-300 hover:text-blue-700"
-                >
-                  返回 VPS 设置
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEvents([]);
-                    setCurrentStep('');
-                    setErrorMsg('');
-                    setNode(null);
-                    setSubscription(null);
-                    setSubscriptionError('');
-                    setSubscriptionLoading(false);
-                    setDeployAttempt((value) => value + 1);
-                    setStep(2);
-                  }}
-                  disabled={!protocolValid}
-                  className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
-                  开始部署
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          {step === 2 ? (
-            <div className="space-y-6">
-              <DeployProgress
-                key={deployAttempt}
-                params={deployParams}
-                events={events}
-                currentStep={currentStep}
-                errorMsg={errorMsg}
-                onEvent={handleDeployEvent}
-                onComplete={handleDeployComplete}
-                onRetry={restartDeploy}
-              />
-              <div className="flex justify-between">
-                <button
-                  type="button"
-                  onClick={() => setStep(1)}
-                  className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-blue-300 hover:text-blue-700"
-                >
-                  返回协议设置
-                </button>
-                {subscriptionLoading ? (
-                  <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
-                    部署完成，正在获取订阅信息...
-                  </div>
-                ) : null}
-                {subscriptionError ? (
-                  <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                    {subscriptionError}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
-
-          {step === 3 && node && subscription ? (
-            <div className="space-y-6">
-              <SubscriptionView
-                node={node}
-                uri={subscription.uri}
-                qrSvg={subscription.qrSvg}
-                managedUri={subscription.managedUri}
-                managedQrSvg={subscription.managedQrSvg}
-              />
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => navigate('/')}
-                  className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
-                >
-                  完成并返回列表
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </div>
+      <div className="mt-6">
+        <WizardStepper
+          step={step}
+          locked={wizardNavigationLocked}
+          onStepBack={handleStepBack}
+        />
       </div>
-    </div>
+
+      <div className="mt-6">
+        {step === 0 ? (
+          <StepTransition key={0}>
+            <ConnectForm
+              value={credential}
+              profiles={profiles}
+              profilesLoading={profilesLoading}
+              profilesError={profilesError}
+              onChange={handleCredentialChange}
+              onTestConnection={handleTestConnection}
+              testState={testState}
+              testError={testError}
+              osInfo={osInfo}
+              onProfilesRefresh={() => setProfilesRefreshTick((value) => value + 1)}
+            />
+            <WizardActions
+              right={
+                <>
+                  {!canContinueFromConnect ? (
+                    <span className="text-xs text-surface-500 dark:text-surface-400">
+                      请先测试连接
+                    </span>
+                  ) : null}
+                  <Button onClick={() => setStep(1)} disabled={!canContinueFromConnect}>
+                    下一步：命名节点
+                  </Button>
+                </>
+              }
+            />
+          </StepTransition>
+        ) : null}
+
+        {step === 1 ? (
+          <StepTransition key={1}>
+            <ProtocolPicker value={protocol} onChange={handleProtocolChange} />
+            <WizardActions
+              left={
+                <Button variant="secondary" onClick={() => setStep(0)}>
+                  上一步
+                </Button>
+              }
+              right={
+                <Button onClick={startDeploy} disabled={!protocolValid}>
+                  开始部署
+                </Button>
+              }
+            />
+          </StepTransition>
+        ) : null}
+
+        {step === 2 ? (
+          <StepTransition key={2}>
+            <DeployProgress
+              key={deployAttempt}
+              params={deployParams}
+              events={events}
+              currentStep={currentStep}
+              errorMsg={errorMsg}
+              onEvent={handleDeployEvent}
+              onComplete={handleDeployComplete}
+              onRetry={restartDeploy}
+            />
+
+            {/* 订阅获取反馈：留在部署区域内，不再与导航按钮挤一行；失败提供重试/跳过并完成 */}
+            {subscriptionLoading ? (
+              <Callout variant="info" title="部署完成" className="mt-4">
+                <span className="inline-flex items-center gap-2">
+                  <Spinner size="sm" />
+                  正在获取订阅信息…
+                </span>
+              </Callout>
+            ) : null}
+            {subscriptionError ? (
+              <Callout variant="danger" title="获取订阅信息失败" className="mt-4">
+                <p>{subscriptionError}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      if (node) {
+                        fetchSubscription(node);
+                      }
+                    }}
+                    loading={subscriptionLoading}
+                    loadingText="重试中…"
+                  >
+                    重试
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => navigate('/')}>
+                    跳过并完成
+                  </Button>
+                </div>
+                <p className="mt-2 text-xs opacity-80">
+                  节点已部署成功，跳过后可稍后在节点详情页查看订阅。
+                </p>
+              </Callout>
+            ) : null}
+
+            <WizardActions
+              left={
+                <Button
+                  variant="secondary"
+                  onClick={() => handleStepBack(1)}
+                  disabled={wizardNavigationLocked}
+                >
+                  上一步
+                </Button>
+              }
+            />
+          </StepTransition>
+        ) : null}
+
+        {step === 3 && node && subscription ? (
+          <StepTransition key={3}>
+            <SubscriptionView
+              node={node}
+              uri={subscription.uri}
+              qrSvg={subscription.qrSvg}
+              managedUri={subscription.managedUri}
+              managedQrSvg={subscription.managedQrSvg}
+            />
+            <WizardActions
+              right={
+                <Button onClick={() => navigate('/')}>完成并返回列表</Button>
+              }
+            />
+          </StepTransition>
+        ) : null}
+      </div>
+    </PageShell>
   );
 }

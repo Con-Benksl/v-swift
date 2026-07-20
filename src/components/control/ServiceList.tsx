@@ -1,4 +1,6 @@
 import { ServiceStatus } from '../../ipc/control';
+import { protocolLabel } from '../../lib';
+import { Badge, Button, Card, Skeleton, Spinner } from '../ui';
 
 interface ServiceListProps {
   services: ServiceStatus[];
@@ -6,13 +8,8 @@ interface ServiceListProps {
   onRestart: (protocol: string) => void;
   onStart: (protocol: string) => void;
   onStop: (protocol: string) => void;
+  /** 正在执行操作的服务协议 id；非空期间整表按钮互斥禁用 */
   actionLoading?: string | null;
-}
-
-function protocolLabel(protocol: string) {
-  if (protocol === 'vless-reality') return 'VLESS Reality';
-  if (protocol === 'hysteria2') return 'Hysteria 2';
-  return protocol;
 }
 
 function ServiceRow({
@@ -20,73 +17,84 @@ function ServiceRow({
   onRestart,
   onStart,
   onStop,
-  loading,
+  busy,
+  acting,
 }: {
   service: ServiceStatus;
   onRestart: () => void;
   onStart: () => void;
   onStop: () => void;
-  loading?: boolean;
+  /** 整表互斥：任意服务操作期间为 true，禁用所有行按钮 */
+  busy: boolean;
+  /** 当前行是否为正在操作的目标行 */
+  acting: boolean;
 }) {
   const isRunning = service.running && service.active;
 
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 transition hover:border-blue-200 hover:bg-blue-50/30 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex items-center gap-4">
-        <div
-          className={`h-3 w-3 rounded-full ${
-            isRunning ? 'animate-pulse bg-emerald-500' : 'bg-rose-500'
-          }`}
-        />
-        <div>
+    <Card padding="md" className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h4 className="font-semibold text-slate-950">{service.name}</h4>
-            <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
-              {protocolLabel(service.protocol)}
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-slate-400">
-            {service.port ? `端口 ${service.port} · ` : ''}
+            <h4 className="truncate font-semibold text-surface-800 dark:text-surface-100">
+              {service.name}
+            </h4>
+            <Badge variant="info">{protocolLabel(service.protocol)}</Badge>
             {isRunning ? (
-              <span className="text-emerald-600">运行中</span>
+              <Badge variant="success" dot>
+                运行中
+              </Badge>
             ) : (
-              <span className="text-rose-600">已停止</span>
+              <Badge variant="danger" dot>
+                已停止
+              </Badge>
             )}
+          </div>
+          <p className="mt-1.5 text-xs text-surface-500 dark:text-surface-400">
+            {service.port ? `端口 ${service.port}` : '端口未记录'}
           </p>
         </div>
       </div>
-      <div className="flex gap-2">
+      <div className="flex shrink-0 items-center gap-2">
+        {acting ? (
+          <span className="inline-flex items-center gap-1.5 pr-1 text-xs text-surface-500 dark:text-surface-400">
+            <Spinner size="sm" />
+            处理中…
+          </span>
+        ) : null}
         {isRunning ? (
           <>
-            <button
-              type="button"
-              onClick={onRestart}
-              disabled={loading}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {loading ? '重启中...' : '重启'}
-            </button>
-            <button
-              type="button"
-              onClick={onStop}
-              disabled={loading}
-              className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 transition hover:border-rose-300 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {loading ? '停止中...' : '停止'}
-            </button>
+            <Button variant="secondary" size="sm" onClick={onRestart} disabled={busy}>
+              重启
+            </Button>
+            <Button variant="danger" size="sm" onClick={onStop} disabled={busy}>
+              停止
+            </Button>
           </>
         ) : (
-          <button
-            type="button"
-            onClick={onStart}
-            disabled={loading}
-            className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {loading ? '启动中...' : '启动'}
-          </button>
+          <Button variant="secondary" size="sm" onClick={onStart} disabled={busy}>
+            启动
+          </Button>
         )}
       </div>
-    </div>
+    </Card>
+  );
+}
+
+function ServiceRowSkeleton() {
+  return (
+    <Card padding="md" aria-hidden="true">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <Skeleton variant="line" className="w-28" />
+            <Skeleton variant="block" className="h-5 w-20 rounded-full" />
+          </div>
+          <Skeleton variant="line" className="mt-2.5 w-24" />
+        </div>
+        <Skeleton variant="block" className="h-7 w-14" />
+      </div>
+    </Card>
   );
 }
 
@@ -102,18 +110,7 @@ export function ServiceList({
     return (
       <div className="space-y-3">
         {[...Array(2)].map((_, i) => (
-          <div
-            key={i}
-            className="animate-pulse rounded-2xl border border-slate-200 bg-slate-100 p-4"
-          >
-            <div className="flex items-center gap-4">
-              <div className="h-3 w-3 rounded-full bg-slate-300" />
-              <div>
-                <div className="h-4 w-32 rounded bg-slate-300" />
-                <div className="mt-2 h-3 w-24 rounded bg-slate-300" />
-              </div>
-            </div>
-          </div>
+          <ServiceRowSkeleton key={i} />
         ))}
       </div>
     );
@@ -121,11 +118,18 @@ export function ServiceList({
 
   if (services.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
-        <p className="text-sm text-slate-500">暂无服务</p>
-      </div>
+      <Card padding="lg" className="border-dashed text-center shadow-none">
+        <p className="text-sm font-medium text-surface-600 dark:text-surface-300">暂无服务</p>
+        <p className="mt-1.5 text-xs leading-relaxed text-surface-500 dark:text-surface-400">
+          连接成功后会自动列出该 VPS 上已部署的代理服务；
+          <br />
+          若刚刚完成部署，点击右上角「刷新服务」获取最新状态。
+        </p>
+      </Card>
     );
   }
+
+  const busy = Boolean(actionLoading);
 
   return (
     <div className="space-y-3">
@@ -136,7 +140,8 @@ export function ServiceList({
           onRestart={() => onRestart(service.protocol)}
           onStart={() => onStart(service.protocol)}
           onStop={() => onStop(service.protocol)}
-          loading={actionLoading === service.protocol}
+          busy={busy}
+          acting={actionLoading === service.protocol}
         />
       ))}
     </div>

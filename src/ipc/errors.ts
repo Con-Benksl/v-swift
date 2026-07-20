@@ -39,6 +39,33 @@ function normalizeIpcError(error: unknown): { kind: string; detail: string } {
   return { kind, detail };
 }
 
+export interface UnknownSshHostKey {
+  host: string;
+  port: string;
+  algorithm: string;
+  fingerprint: string;
+}
+
+export function extractUnknownSshHostKey(error: unknown): UnknownSshHostKey | null {
+  const { detail } = normalizeIpcError(error);
+  const markerIndex = detail.indexOf('UNKNOWN_SSH_HOST_KEY|');
+  if (markerIndex < 0) return null;
+
+  const fields = new Map<string, string>();
+  for (const segment of detail.slice(markerIndex).split('|').slice(1)) {
+    const separator = segment.indexOf('=');
+    if (separator > 0) {
+      fields.set(segment.slice(0, separator), segment.slice(separator + 1));
+    }
+  }
+  const host = fields.get('host');
+  const port = fields.get('port');
+  const algorithm = fields.get('algorithm');
+  const fingerprint = fields.get('fingerprint');
+  if (!host || !port || !algorithm || !fingerprint) return null;
+  return { host, port, algorithm, fingerprint };
+}
+
 export function extractIpcErrorMessage(error: unknown, fallback: string): string {
   const { kind, detail } = normalizeIpcError(error);
   if (kind && detail) return `${kind}: ${detail}`;
@@ -58,6 +85,10 @@ export function mapConnectionError(error: unknown): string {
     return '连接超时：服务器在 15 秒内没有响应（可能下线、端口被封或路由不通）。';
   }
   if (kind === 'SshHostKey' || haystack.includes('SshHostKey')) {
+    const unknownKey = extractUnknownSshHostKey(error);
+    if (unknownKey) {
+      return `首次连接尚未信任该服务器（${unknownKey.algorithm} ${unknownKey.fingerprint}）。`;
+    }
     return `SSH 主机密钥校验失败：${detail || '服务器身份和已信任记录不一致。'}`;
   }
   if (kind && detail) return `${kind}: ${detail}`;

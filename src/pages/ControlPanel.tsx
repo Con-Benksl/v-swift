@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ConnectionStatus,
   NetworkStats,
@@ -18,13 +18,65 @@ import {
 import { listVpsProfiles } from '../ipc';
 import { extractIpcErrorMessage } from '../ipc/errors';
 import { VpsProfileSummary } from '../ipc/types';
-import { SystemStatusCards, NetworkRateCard, ServiceList, LogViewer, VpsSelector } from '../components/control';
+import { protocolLabel } from '../lib';
+import { useDeploymentActivity } from '../lib/deploymentActivity';
+import {
+  Badge,
+  Button,
+  Callout,
+  Card,
+  Modal,
+  PageShell,
+  SectionHeader,
+} from '../components/ui';
+import {
+  SystemStatusCards,
+  NetworkTrafficCard,
+  ServiceList,
+  LogViewer,
+  VpsSelector,
+} from '../components/control';
 
 const REFRESH_INTERVAL = 30_000;
 
+/** 连接状态徽章：色点 + 文字，错误详情不进徽章（统一由 Callout 单处展示） */
+function ConnectionStatusBadge({ status }: { status: ConnectionStatus }) {
+  if (status.status === 'connected') {
+    return (
+      <Badge variant="success" dot>
+        已连接
+      </Badge>
+    );
+  }
+  if (status.status === 'connecting') {
+    return (
+      <Badge variant="warning" dot>
+        连接中…
+      </Badge>
+    );
+  }
+  if (status.status === 'error') {
+    return (
+      <Badge variant="danger" dot>
+        连接错误
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="neutral" dot>
+      未连接
+    </Badge>
+  );
+}
+
 export default function ControlPanel() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const vpsIdFromUrl = searchParams.get('vpsId');
+  const {
+    acquire: acquireDeploymentActivity,
+    release: releaseDeploymentActivity,
+  } = useDeploymentActivity();
   const [profiles, setProfiles] = useState<VpsProfileSummary[]>([]);
   const [selectedVpsId, setSelectedVpsId] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({ status: 'disconnected' });
@@ -32,29 +84,54 @@ export default function ControlPanel() {
   const [networkStats, setNetworkStats] = useState<NetworkStats | null>(null);
   const [services, setServices] = useState<ServiceStatus[]>([]);
   const [logs, setLogs] = useState<string[]>([]);
+  const [logProtocol, setLogProtocol] = useState('');
   const [loadingProfiles, setLoadingProfiles] = useState(true);
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [loadingServices, setLoadingServices] = useState(false);
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [pendingStop, setPendingStop] = useState<{ vpsId: string; protocol: string } | null>(null);
   const [error, setError] = useState('');
   const connectRequestIdRef = useRef(0);
+  const statusRequestIdRef = useRef(0);
+  const serviceRequestIdRef = useRef(0);
+  const logRequestIdRef = useRef(0);
+  const logProtocolRef = useRef('');
   const selectedVpsIdRef = useRef<string | null>(null);
   const connectedVpsIdRef = useRef<string | null>(null);
+  const connectionTransitionRef = useRef<Promise<void>>(Promise.resolve());
+  const actionInFlightRef = useRef(false);
+  const mountedRef = useRef(false);
+  const profileLoadRequestIdRef = useRef(0);
+  const actionRequestIdRef = useRef(0);
 
   const loadProfiles = useCallback(async () => {
+    const requestId = profileLoadRequestIdRef.current + 1;
+    profileLoadRequestIdRef.current = requestId;
+    const isCurrentRequest = () =>
+      mountedRef.current && profileLoadRequestIdRef.current === requestId;
+
+    setLoadingProfiles(true);
     try {
       const data = await listVpsProfiles();
-      setProfiles(data);
+      if (!isCurrentRequest()) return;
+
+      const availableProfiles = data.filter((profile) => profile.credentialAvailable);
+      const availableProfileIds = new Set(availableProfiles.map((profile) => profile.id));
+      setProfiles(availableProfiles);
       setSelectedVpsId((current) => {
-        if (vpsIdFromUrl) return vpsIdFromUrl;
-        if (data.length > 0 && !current) return data[0].id;
-        return current;
+        if (vpsIdFromUrl && availableProfileIds.has(vpsIdFromUrl)) return vpsIdFromUrl;
+        if (current && availableProfileIds.has(current)) return current;
+        return availableProfiles[0]?.id ?? null;
       });
     } catch (err) {
-      setError(extractIpcErrorMessage(err, '加载 VPS 列表失败'));
+      if (isCurrentRequest()) {
+        setError(extractIpcErrorMessage(err, '加载 VPS 列表失败'));
+      }
     } finally {
-      setLoadingProfiles(false);
+      if (isCurrentRequest()) {
+        setLoadingProfiles(false);
+      }
     }
   }, [vpsIdFromUrl]);
 
@@ -63,8 +140,15 @@ export default function ControlPanel() {
   }, [selectedVpsId]);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
+      profileLoadRequestIdRef.current += 1;
       connectRequestIdRef.current += 1;
+      statusRequestIdRef.current += 1;
+      serviceRequestIdRef.current += 1;
+      logRequestIdRef.current += 1;
+      actionRequestIdRef.current += 1;
     };
   }, []);
 
@@ -79,72 +163,133 @@ export default function ControlPanel() {
     setNetworkStats(null);
     setServices([]);
     setLogs([]);
+    setLogProtocol('');
+    setLoadingStatus(false);
+    setLoadingServices(false);
+    setLoadingLogs(false);
+    statusRequestIdRef.current += 1;
+    serviceRequestIdRef.current += 1;
+    logProtocolRef.current = '';
+    logRequestIdRef.current += 1;
 
-    const previousVpsId = connectedVpsIdRef.current;
-    if (previousVpsId && previousVpsId !== vpsId) {
-      try {
-        await disconnectVps(previousVpsId);
-      } catch {
-      }
-      if (connectedVpsIdRef.current === previousVpsId) {
-        connectedVpsIdRef.current = null;
-      }
-    }
+    const transition = connectionTransitionRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        if (!isCurrentRequest()) return false;
 
-    if (!isCurrentRequest()) return;
+        const previousVpsId = connectedVpsIdRef.current;
+        if (previousVpsId && previousVpsId !== vpsId) {
+          try {
+            await disconnectVps(previousVpsId);
+          } catch {
+            // 后续 connect 会给出当前目标的真实状态；断开旧缓存失败不覆盖它。
+          }
+          if (connectedVpsIdRef.current === previousVpsId) {
+            connectedVpsIdRef.current = null;
+          }
+        }
 
-    try {
-      await connectVps(vpsId);
-      if (!isCurrentRequest()) {
-        return;
-      }
-      connectedVpsIdRef.current = vpsId;
-      setConnectionStatus({ status: 'connected' });
-    } catch (err) {
-      if (!isCurrentRequest()) return;
-      const msg = extractIpcErrorMessage(err, '连接失败');
-      setConnectionStatus({ status: 'error', message: msg });
-      setError(msg);
-      return;
-    }
+        if (!isCurrentRequest()) return false;
+
+        try {
+          await connectVps(vpsId);
+        } catch (err) {
+          if (isCurrentRequest()) {
+            const msg = extractIpcErrorMessage(err, '连接失败');
+            setConnectionStatus({ status: 'error', message: msg });
+            setError(msg);
+          }
+          return false;
+        }
+
+        // 连接池按 VPS ID 而不是请求会话标识；过期请求不能断开可能已被新请求复用的连接。
+        if (!isCurrentRequest()) return false;
+
+        connectedVpsIdRef.current = vpsId;
+        return true;
+      });
+
+    connectionTransitionRef.current = transition.then(() => undefined, () => undefined);
+    if (!(await transition)) return;
+    setConnectionStatus({ status: 'connected' });
+
+    const statusRequestId = statusRequestIdRef.current + 1;
+    statusRequestIdRef.current = statusRequestId;
+    const serviceRequestId = serviceRequestIdRef.current + 1;
+    serviceRequestIdRef.current = serviceRequestId;
+    const isCurrentStatusRequest = () =>
+      isCurrentRequest() && statusRequestIdRef.current === statusRequestId;
+    const isCurrentServiceRequest = () =>
+      isCurrentRequest() && serviceRequestIdRef.current === serviceRequestId;
 
     setLoadingStatus(true);
+    setLoadingServices(true);
+    const statusPromise = Promise.all([getSystemStatus(vpsId), getNetworkStats(vpsId)]);
+    const servicesPromise = getAllServiceStatuses(vpsId).then(
+      (value) => ({ ok: true as const, value }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
     let loadedServices: ServiceStatus[] = [];
+
     try {
-      const [sys, net, serviceStatuses] = await Promise.all([
-        getSystemStatus(vpsId),
-        getNetworkStats(vpsId),
-        getAllServiceStatuses(vpsId),
-      ]);
-      if (!isCurrentRequest()) return;
-      loadedServices = serviceStatuses;
-      setSystemStatus(sys);
-      setNetworkStats(net);
-      setServices(serviceStatuses);
+      const [sys, net] = await statusPromise;
+      if (isCurrentStatusRequest()) {
+        setSystemStatus(sys);
+        setNetworkStats(net);
+      }
     } catch (err) {
-      if (!isCurrentRequest()) return;
-      setError(extractIpcErrorMessage(err, '加载状态失败'));
+      if (isCurrentStatusRequest()) {
+        setError(extractIpcErrorMessage(err, '加载状态失败'));
+      }
     } finally {
-      if (isCurrentRequest()) {
+      if (isCurrentStatusRequest()) {
         setLoadingStatus(false);
       }
     }
 
-    if (loadedServices.length > 0 && isCurrentRequest()) {
+    try {
+      const serviceResult = await servicesPromise;
+      if (!serviceResult.ok) throw serviceResult.error;
+      const serviceStatuses = serviceResult.value;
+      if (isCurrentServiceRequest()) {
+        loadedServices = serviceStatuses;
+        setServices(serviceStatuses);
+      }
+    } catch (err) {
+      if (isCurrentServiceRequest()) {
+        setError(extractIpcErrorMessage(err, '加载服务状态失败'));
+      }
+    } finally {
+      if (isCurrentServiceRequest()) {
+        setLoadingServices(false);
+      }
+    }
+
+    if (loadedServices.length > 0 && isCurrentServiceRequest()) {
+      const initialProtocol = loadedServices[0].protocol;
+      const logRequestId = logRequestIdRef.current + 1;
+      logRequestIdRef.current = logRequestId;
+      logProtocolRef.current = initialProtocol;
+      const isCurrentLogRequest = () =>
+        isCurrentRequest() &&
+        logRequestIdRef.current === logRequestId &&
+        logProtocolRef.current === initialProtocol;
+
+      setLogProtocol(initialProtocol);
       setLoadingLogs(true);
       try {
-        const logLines = await getServiceLogs(vpsId, loadedServices[0].protocol);
-        if (isCurrentRequest()) {
+        const logLines = await getServiceLogs(vpsId, initialProtocol);
+        if (isCurrentLogRequest()) {
           setLogs(logLines);
         }
       } catch (err) {
-        if (isCurrentRequest()) {
+        if (isCurrentLogRequest()) {
           const msg = extractIpcErrorMessage(err, '加载日志失败');
           setLogs([msg]);
           setError(msg);
         }
       } finally {
-        if (isCurrentRequest()) {
+        if (isCurrentLogRequest()) {
           setLoadingLogs(false);
         }
       }
@@ -155,21 +300,25 @@ export default function ControlPanel() {
     if (!selectedVpsId || connectionStatus.status !== 'connected') return;
 
     const vpsId = selectedVpsId;
+    const requestId = statusRequestIdRef.current + 1;
+    statusRequestIdRef.current = requestId;
+    const isCurrentRequest = () =>
+      selectedVpsIdRef.current === vpsId && statusRequestIdRef.current === requestId;
     setLoadingStatus(true);
     try {
       const [sys, net] = await Promise.all([
         getSystemStatus(vpsId),
         getNetworkStats(vpsId),
       ]);
-      if (selectedVpsIdRef.current !== vpsId) return;
+      if (!isCurrentRequest()) return;
       setSystemStatus(sys);
       setNetworkStats(net);
     } catch (err) {
-      if (selectedVpsIdRef.current === vpsId) {
+      if (isCurrentRequest()) {
         setError(extractIpcErrorMessage(err, '加载状态失败'));
       }
     } finally {
-      if (selectedVpsIdRef.current === vpsId) {
+      if (isCurrentRequest()) {
         setLoadingStatus(false);
       }
     }
@@ -179,18 +328,22 @@ export default function ControlPanel() {
     if (!selectedVpsId || connectionStatus.status !== 'connected') return;
 
     const vpsId = selectedVpsId;
+    const requestId = serviceRequestIdRef.current + 1;
+    serviceRequestIdRef.current = requestId;
+    const isCurrentRequest = () =>
+      selectedVpsIdRef.current === vpsId && serviceRequestIdRef.current === requestId;
     setLoadingServices(true);
     try {
       const svc = await getAllServiceStatuses(vpsId);
-      if (selectedVpsIdRef.current !== vpsId) return;
+      if (!isCurrentRequest()) return;
       setServices(svc);
     } catch (err) {
-      if (selectedVpsIdRef.current === vpsId) {
+      if (isCurrentRequest()) {
         setServices([]);
         setError(extractIpcErrorMessage(err, '加载服务状态失败'));
       }
     } finally {
-      if (selectedVpsIdRef.current === vpsId) {
+      if (isCurrentRequest()) {
         setLoadingServices(false);
       }
     }
@@ -200,21 +353,33 @@ export default function ControlPanel() {
     if (!selectedVpsId || connectionStatus.status !== 'connected') return;
 
     const vpsId = selectedVpsId;
-    const targetProtocol = protocol || (services.length > 0 ? services[0].protocol : 'vless-reality');
+    if (selectedVpsIdRef.current !== vpsId) return;
+
+    const targetProtocol =
+      protocol ||
+      logProtocolRef.current ||
+      (services.length > 0 ? services[0].protocol : 'vless-reality');
+    const requestId = logRequestIdRef.current + 1;
+    logRequestIdRef.current = requestId;
+    logProtocolRef.current = targetProtocol;
+    const isCurrentLogRequest = () =>
+      selectedVpsIdRef.current === vpsId &&
+      logRequestIdRef.current === requestId &&
+      logProtocolRef.current === targetProtocol;
 
     setLoadingLogs(true);
     try {
       const logLines = await getServiceLogs(vpsId, targetProtocol);
-      if (selectedVpsIdRef.current !== vpsId) return;
+      if (!isCurrentLogRequest()) return;
       setLogs(logLines);
     } catch (err) {
-      if (selectedVpsIdRef.current === vpsId) {
+      if (isCurrentLogRequest()) {
         const msg = extractIpcErrorMessage(err, '加载日志失败');
         setLogs([msg]);
         setError(msg);
       }
     } finally {
-      if (selectedVpsIdRef.current === vpsId) {
+      if (isCurrentLogRequest()) {
         setLoadingLogs(false);
       }
     }
@@ -242,134 +407,256 @@ export default function ControlPanel() {
   const handleServiceAction = async (
     action: 'restart' | 'start' | 'stop',
     protocol: string,
-  ) => {
-    if (!selectedVpsId) return;
+    targetVpsId: string | null = selectedVpsId,
+  ): Promise<boolean> => {
+    if (!targetVpsId || actionInFlightRef.current) return false;
 
+    const requestId = actionRequestIdRef.current + 1;
+    actionRequestIdRef.current = requestId;
+    const isCurrentAction = () =>
+      mountedRef.current && actionRequestIdRef.current === requestId;
+    const activityLease = acquireDeploymentActivity();
+    actionInFlightRef.current = true;
     setActionLoading(protocol);
     try {
       if (action === 'restart') {
-        await restartService(selectedVpsId, protocol);
+        await restartService(targetVpsId, protocol);
       } else if (action === 'start') {
-        await startService(selectedVpsId, protocol);
+        await startService(targetVpsId, protocol);
       } else {
-        await stopService(selectedVpsId, protocol);
+        await stopService(targetVpsId, protocol);
       }
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      await refreshServices();
-      await refreshLogs();
+      if (selectedVpsIdRef.current === targetVpsId) {
+        await refreshServices();
+        await refreshLogs(logProtocolRef.current || protocol);
+      }
+      return isCurrentAction();
     } catch (err) {
-      setError(extractIpcErrorMessage(err, '操作失败'));
+      if (isCurrentAction() && selectedVpsIdRef.current === targetVpsId) {
+        setError(extractIpcErrorMessage(err, '操作失败'));
+      }
+      return false;
     } finally {
-      setActionLoading(null);
+      releaseDeploymentActivity(activityLease);
+      if (isCurrentAction()) {
+        setActionLoading(null);
+        actionInFlightRef.current = false;
+      }
     }
   };
 
-  const connectionLabel = () => {
-    if (connectionStatus.status === 'disconnected') return { text: '未连接', class: 'text-slate-500' };
-    if (connectionStatus.status === 'connecting') return { text: '连接中...', class: 'text-amber-500' };
-    if (connectionStatus.status === 'connected') return { text: '已连接', class: 'text-emerald-600' };
-    if (connectionStatus.status === 'error') return { text: `错误: ${connectionStatus.message}`, class: 'text-rose-600' };
-    return { text: '未知', class: 'text-slate-500' };
+  const handleLogProtocolChange = (protocol: string) => {
+    logProtocolRef.current = protocol;
+    setLogProtocol(protocol);
+    void refreshLogs(protocol);
   };
 
-  const conn = connectionLabel();
+  const requestStopService = (protocol: string) => {
+    const vpsId = selectedVpsIdRef.current;
+    if (vpsId) {
+      setPendingStop({ vpsId, protocol });
+    }
+  };
+
+  const closeStopConfirm = () => {
+    if (pendingStop && actionLoading === pendingStop.protocol) {
+      return;
+    }
+    setPendingStop(null);
+  };
+
+  const confirmStopService = async () => {
+    const target = pendingStop;
+    if (!target) return;
+
+    const stopped = await handleServiceAction('stop', target.protocol, target.vpsId);
+    if (stopped) {
+      setPendingStop((current) =>
+        current?.vpsId === target.vpsId && current.protocol === target.protocol ? null : current,
+      );
+    }
+  };
+
+  const connected = connectionStatus.status === 'connected';
+  const hasProfiles = profiles.length > 0;
+  const stopInProgress = Boolean(pendingStop && actionLoading === pendingStop.protocol);
+  const pendingStopVpsName = pendingStop
+    ? (profiles.find((profile) => profile.id === pendingStop.vpsId)?.name ?? pendingStop.vpsId)
+    : '';
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(37,99,235,0.14),_transparent_38%),linear-gradient(180deg,_#f8fafc_0%,_#e2e8f0_100%)] px-6 py-8">
-      <div className="mx-auto max-w-6xl">
-        <section className="rounded-[2rem] border border-white/60 bg-white/75 p-8 shadow-xl shadow-slate-300/30 backdrop-blur">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-600">控制面板</p>
-              <h1 className="mt-2 text-4xl font-semibold tracking-tight text-slate-950">VPS 管理</h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-500">
-                实时监控 VPS 状态，管理服务运行。
-              </p>
-            </div>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="flex items-center gap-3">
-                <VpsSelector
-                  profiles={profiles}
-                  selectedId={selectedVpsId}
-                  onSelect={setSelectedVpsId}
-                  loading={loadingProfiles}
-                />
-                <span className={`text-sm font-medium ${conn.class}`}>{conn.text}</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => void refreshData()}
-                disabled={loadingStatus || connectionStatus.status !== 'connected'}
-                className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-              >
-                {loadingStatus ? '刷新中...' : '刷新'}
-              </button>
-            </div>
-          </div>
-        </section>
-
-        {error && (
-          <div className="mt-6 flex flex-col gap-3 rounded-3xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700 sm:flex-row sm:items-center sm:justify-between">
-            <p>{error}</p>
-            <button
-              type="button"
-              onClick={() => setError('')}
-              className="self-start rounded-2xl border border-rose-200 bg-white px-4 py-2 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-100 sm:self-auto"
+    <PageShell width="xl">
+      <SectionHeader
+        eyebrow="控制面板"
+        title="VPS 管理"
+        description="实时监控 VPS 状态，管理服务运行。"
+        actions={
+          <>
+            <ConnectionStatusBadge status={connectionStatus} />
+            <VpsSelector
+              profiles={profiles}
+              selectedId={selectedVpsId}
+              onSelect={setSelectedVpsId}
+              loading={loadingProfiles}
+              disabled={actionLoading !== null}
+            />
+            <Button
+              variant="secondary"
+              onClick={() => void refreshData()}
+              loading={loadingStatus}
+              loadingText="刷新中…"
+              disabled={!connected}
             >
-              关闭
-            </button>
-          </div>
-        )}
+              刷新
+            </Button>
+          </>
+        }
+      />
 
-        <div className="mt-8 space-y-6">
+      {error && (
+        <Callout
+          key={error}
+          variant="danger"
+          title="操作未成功"
+          closable
+          onClose={() => setError('')}
+          className="mt-4"
+        >
+          {error}
+        </Callout>
+      )}
+
+      {!loadingProfiles && !hasProfiles ? (
+        <Card padding="lg" className="mt-6 text-center">
+          <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-brand-50 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300">
+            <svg
+              className="h-5 w-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={1.5}
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M5.25 14.25h13.5m-13.5 0a2.25 2.25 0 0 1-2.25-2.25V6a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 6v6a2.25 2.25 0 0 1-2.25 2.25m-13.5 0v3A2.25 2.25 0 0 0 7.5 19.5h9a2.25 2.25 0 0 0 2.25-2.25v-3M9 9h.008v.008H9V9Zm0 6h.008v.008H9V15Z"
+              />
+            </svg>
+          </div>
+          <h2 className="mt-4 text-base font-semibold text-surface-800 dark:text-surface-100">
+            还没有可用的 VPS 节点
+          </h2>
+          <p className="mx-auto mt-1.5 max-w-md text-sm leading-relaxed text-surface-500 dark:text-surface-400">
+            控制面板需要连接一个已部署的 VPS 才能展示系统状态与服务。
+            先去新建一个节点，完成部署后回到这里管理。
+          </p>
+          <div className="mt-5">
+            <Button variant="primary" onClick={() => navigate('/new')}>
+              去新建节点
+            </Button>
+          </div>
+        </Card>
+      ) : (
+        <div className="mt-6 space-y-6">
           <section>
-            <h2 className="mb-4 text-lg font-semibold text-slate-950">系统状态</h2>
+            <h2 className="mb-3 text-sm font-semibold text-surface-800 dark:text-surface-100">
+              系统状态
+            </h2>
             <SystemStatusCards status={systemStatus} loading={loadingStatus} />
           </section>
 
           {networkStats && (
             <section>
-              <h2 className="mb-4 text-lg font-semibold text-slate-950">流量统计</h2>
-              <NetworkRateCard
-                rxRateBps={networkStats.bytesReceived}
-                txRateBps={networkStats.bytesSent}
+              <h2 className="mb-3 text-sm font-semibold text-surface-800 dark:text-surface-100">
+                流量统计
+              </h2>
+              <NetworkTrafficCard
+                bytesReceived={networkStats.bytesReceived}
+                bytesSent={networkStats.bytesSent}
                 loading={loadingStatus}
               />
             </section>
           )}
 
           <section>
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-950">服务管理</h2>
-              <button
-                type="button"
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold text-surface-800 dark:text-surface-100">
+                服务管理
+              </h2>
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => void refreshServices()}
-                disabled={loadingServices || connectionStatus.status !== 'connected'}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                loading={loadingServices}
+                loadingText="刷新中…"
+                disabled={!connected}
               >
                 刷新服务
-              </button>
+              </Button>
             </div>
             <ServiceList
               services={services}
               loading={loadingServices}
               onRestart={(p) => void handleServiceAction('restart', p)}
               onStart={(p) => void handleServiceAction('start', p)}
-              onStop={(p) => void handleServiceAction('stop', p)}
+              onStop={requestStopService}
               actionLoading={actionLoading}
             />
           </section>
 
           <section>
-            <h2 className="mb-4 text-lg font-semibold text-slate-950">日志</h2>
+            <h2 className="mb-3 text-sm font-semibold text-surface-800 dark:text-surface-100">
+              日志
+            </h2>
             <LogViewer
               logs={logs}
               loading={loadingLogs}
               onRefresh={() => void refreshLogs()}
+              protocolOptions={services.map((s) => ({
+                value: s.protocol,
+                label: protocolLabel(s.protocol),
+              }))}
+              activeProtocol={logProtocol}
+              onProtocolChange={handleLogProtocolChange}
             />
           </section>
         </div>
-      </div>
-    </div>
+      )}
+
+      <Modal
+        open={pendingStop !== null}
+        onClose={closeStopConfirm}
+        title="确认停止服务？"
+        description="停止后，使用该协议的客户端连接会立即中断。"
+        size="sm"
+        closeOnOverlayClick={!stopInProgress}
+        closeOnEsc={!stopInProgress}
+        showCloseButton={!stopInProgress}
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeStopConfirm} disabled={stopInProgress}>
+              取消
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => void confirmStopService()}
+              loading={stopInProgress}
+              loadingText="停止中…"
+            >
+              确认停止
+            </Button>
+          </>
+        }
+      >
+        {pendingStop ? (
+          <p>
+            将停止 VPS「{pendingStopVpsName}」上的 {protocolLabel(pendingStop.protocol)} 服务。
+            此操作不会卸载节点，但会中断当前连接，之后可从服务列表重新启动。
+          </p>
+        ) : null}
+      </Modal>
+    </PageShell>
   );
 }

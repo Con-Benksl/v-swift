@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { deployNode } from '../ipc';
 import { DeployEvent, DeployParams, NodeRecord } from '../ipc/types';
+import { extractErrorMessage, formatBytes, protocolLabel } from '../lib';
+import { Badge, Button, Callout, Card, Spinner } from './ui';
 
 interface DeployProgressProps {
   params: DeployParams;
@@ -19,12 +21,21 @@ const stepLabels: Record<string, string> = {
   configure: '写入配置',
   firewall: '开放防火墙',
   reachability: '验证公网连通性',
+  subscription: '配置托管订阅',
   done: '完成部署',
 };
 
 const baseSteps = ['detect_os', 'prepare', 'install', 'configure', 'firewall'] as const;
 
 type DownloadStage = 'connecting' | 'transferring' | 'waiting' | 'extracting' | 'complete';
+
+const downloadStageLabels: Record<DownloadStage, string> = {
+  connecting: '建立连接',
+  transferring: '传输中',
+  waiting: '等待数据',
+  extracting: '解压安装',
+  complete: '下载完成',
+};
 
 interface DownloadState {
   artifact: 'Xray' | 'Hysteria2';
@@ -33,30 +44,16 @@ interface DownloadState {
   stage: DownloadStage;
 }
 
-function extractErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === 'string' && error) return error;
-  if (error && typeof error === 'object') {
-    const obj = error as Record<string, unknown>;
-    const msg = obj.message;
-    if (typeof msg === 'string' && msg) return msg;
-    if (msg && typeof msg === 'object') {
-      const inner = msg as Record<string, unknown>;
-      if (typeof inner.message === 'string' && inner.message) {
-        return typeof inner.step === 'string'
-          ? `[${inner.step}] ${inner.message}`
-          : inner.message;
-      }
-    }
-    if (typeof obj.kind === 'string' && obj.kind) return obj.kind;
-    try {
-      const json = JSON.stringify(error);
-      if (json && json !== '{}') return json;
-    } catch {
-      /* ignore */
-    }
+/**
+ * 将日志中的「已接收 N」文本格式化为真实字节数。
+ * 纯数字按字节走 formatBytes；已带单位的文本原样保留。
+ */
+function formatReceivedText(text: string): string {
+  const trimmed = text.trim();
+  if (/^\d+$/.test(trimmed)) {
+    return formatBytes(Number(trimmed));
   }
-  return '部署失败（无详细信息）';
+  return trimmed;
 }
 
 function summarizeLogs(logLines: string[]) {
@@ -91,7 +88,7 @@ function summarizeLogs(logLines: string[]) {
       downloadState = {
         artifact: downloadState?.artifact ?? 'Xray',
         attempt: downloadState?.attempt,
-        detail: `已下载 ${received[1]}`,
+        detail: `已下载 ${formatReceivedText(received[1])}`,
         stage: 'transferring',
       };
       continue;
@@ -102,7 +99,7 @@ function summarizeLogs(logLines: string[]) {
       downloadState = {
         artifact: downloadState?.artifact ?? 'Xray',
         attempt: downloadState?.attempt,
-        detail: `已下载 ${waiting[1]}，等待更多数据`,
+        detail: `已下载 ${formatReceivedText(waiting[1])}，等待更多数据`,
         stage: 'waiting',
       };
       continue;
@@ -147,21 +144,44 @@ function summarizeLogs(logLines: string[]) {
   return { downloadState, visibleLogLines };
 }
 
-function downloadBarClass(stage: DownloadStage) {
-  switch (stage) {
-    case 'connecting':
-      return 'w-1/4 bg-sky-400';
-    case 'waiting':
-      return 'w-1/2 bg-sky-500';
-    case 'transferring':
-      return 'w-3/4 bg-blue-500';
-    case 'extracting':
-      return 'w-5/6 bg-indigo-500';
-    case 'complete':
-      return 'w-full bg-emerald-500';
-  }
+function CheckIcon({ className }: { className: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={className}
+    >
+      <path d="m5 12.5 4.5 4.5L19 7.5" />
+    </svg>
+  );
 }
 
+function CrossIcon({ className }: { className: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      aria-hidden="true"
+      className={className}
+    >
+      <path d="m6 6 12 12" />
+      <path d="M18 6 6 18" />
+    </svg>
+  );
+}
+
+/**
+ * 步骤 3「部署进度」：顶部全局进度条 + 竖向时间线步骤列表
+ * （连接线 / 当前步 Spinner / 失败红叉）+ 下载心跳卡 + 可折叠部署日志（失败自动展开）。
+ */
 export default function DeployProgress({
   params,
   events,
@@ -171,13 +191,10 @@ export default function DeployProgress({
   onComplete,
   onRetry,
 }: DeployProgressProps) {
-  const [detailsOpen, setDetailsOpen] = useState(true);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const hasStartedRef = useRef(false);
   const receivedBackendErrorRef = useRef(false);
-  const orderedSteps =
-    params.protocol === 'vless-reality'
-      ? [...baseSteps, 'reachability', 'done']
-      : [...baseSteps, 'done'];
+  const orderedSteps = [...baseSteps, 'reachability', 'subscription', 'done'];
 
   useEffect(() => {
     if (hasStartedRef.current) {
@@ -203,10 +220,17 @@ export default function DeployProgress({
           return;
         }
         const step = currentStep || 'install';
-        const message = extractErrorMessage(error);
+        const message = extractErrorMessage(error, '部署失败（无详细信息）');
         onEvent({ kind: 'error', step, message });
       });
   }, [currentStep, onComplete, onEvent, params]);
+
+  /* 失败后自动展开日志，便于定位问题 */
+  useEffect(() => {
+    if (errorMsg) {
+      setDetailsOpen(true);
+    }
+  }, [errorMsg]);
 
   const logLines = events
     .filter((event): event is Extract<DeployEvent, { kind: 'log' }> => event.kind === 'log')
@@ -215,160 +239,237 @@ export default function DeployProgress({
     (event): event is Extract<DeployEvent, { kind: 'warning' }> => event.kind === 'warning',
   );
   const { downloadState, visibleLogLines } = summarizeLogs(logLines);
+  const isDone = currentStep === 'done';
   const currentIndex = orderedSteps.indexOf(currentStep);
+  const failedStep = errorMsg ? currentStep : '';
+  const completedCount = isDone ? orderedSteps.length : Math.max(currentIndex, 0);
+  const progressPercent = Math.round((completedCount / orderedSteps.length) * 100);
 
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-sm shadow-slate-200/60">
-      <div className="flex flex-col gap-2 border-b border-slate-100 pb-5">
-        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-600">步骤 3</p>
-        <h2 className="text-2xl font-semibold text-slate-950">部署进度</h2>
-        <p className="text-sm text-slate-500">正在远程安装并生成订阅信息，过程中不要关闭窗口。</p>
+    <Card padding="lg">
+      <div className="border-b border-surface-border pb-4 dark:border-surface-700">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-base font-semibold text-surface-800 dark:text-surface-100">
+              部署进度
+            </h2>
+            <p className="mt-1 text-sm text-surface-500 dark:text-surface-400">
+              正在远程安装并生成订阅信息，过程中不要关闭窗口。
+            </p>
+          </div>
+          <Badge variant="info">{protocolLabel(params.protocol)}</Badge>
+        </div>
+
+        {/* 全局进度条：已完成 / 总步数 */}
+        <div className="mt-4">
+          <div className="flex items-center justify-between text-xs text-surface-500 dark:text-surface-400">
+            <span>总进度</span>
+            <span>
+              已完成 {completedCount} / {orderedSteps.length} 步
+            </span>
+          </div>
+          <div
+            className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-100 dark:bg-surface-700"
+            role="progressbar"
+            aria-valuenow={progressPercent}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label={`部署总进度 ${progressPercent}%`}
+          >
+            <div
+              className="h-full rounded-full bg-brand-600 transition-[width] duration-500 dark:bg-brand-500"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+        </div>
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[280px_1fr]">
-        <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-          <div className="space-y-3">
+        {/* 竖向时间线 */}
+        <Card padding="md" className="bg-surface-50 dark:bg-surface-900">
+          <ol>
             {orderedSteps.map((step, index) => {
-              const isCurrent = currentStep === step;
-              const isCompleted = currentIndex > index;
-              const isPending = !isCurrent && !isCompleted;
+              const isFailed = step === failedStep;
+              const isCompleted = !isFailed && (isDone || currentIndex > index);
+              const isCurrent = !isFailed && !isCompleted && currentStep === step;
 
               return (
-                <div key={step} className="flex items-center gap-3 rounded-2xl px-3 py-3">
-                  <div
-                    className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ${
-                      isCompleted
-                        ? 'bg-blue-600 text-white'
-                        : isCurrent
-                          ? 'bg-blue-100 text-blue-700'
-                          : 'bg-white text-slate-400'
+                <li key={step} className="relative flex gap-3 pb-5 last:pb-0">
+                  {index < orderedSteps.length - 1 ? (
+                    <span
+                      aria-hidden="true"
+                      className={`absolute left-[13px] top-7 h-[calc(100%-1.75rem)] w-px ${
+                        isCompleted ? 'bg-brand-400 dark:bg-brand-500' : 'bg-surface-200 dark:bg-surface-700'
+                      }`}
+                    />
+                  ) : null}
+                  <span
+                    className={`relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                      isFailed
+                        ? 'bg-danger-100 text-danger-600 dark:bg-danger-500/15 dark:text-danger-400'
+                        : isCompleted
+                          ? 'bg-brand-600 text-white dark:bg-brand-500'
+                          : isCurrent
+                            ? 'border border-brand-500 bg-brand-50 text-brand-600 dark:border-brand-400 dark:bg-brand-500/10 dark:text-brand-300'
+                            : 'bg-surface-100 text-surface-500 dark:bg-surface-800 dark:text-surface-400'
                     }`}
                   >
-                    {isCompleted ? '✓' : index + 1}
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-slate-900">{stepLabels[step]}</p>
-                    <p className="text-xs text-slate-500">
-                      {isCompleted ? '已完成' : isCurrent ? '进行中' : isPending ? '等待中' : '未开始'}
+                    {isFailed ? (
+                      <CrossIcon className="h-3.5 w-3.5" />
+                    ) : isCompleted ? (
+                      <CheckIcon className="h-3.5 w-3.5" />
+                    ) : isCurrent ? (
+                      <Spinner size="sm" tone="inherit" label={`${stepLabels[step]}进行中`} />
+                    ) : (
+                      index + 1
+                    )}
+                  </span>
+                  <div className="min-w-0 pt-0.5">
+                    <p
+                      className={`text-sm font-medium ${
+                        isFailed
+                          ? 'text-danger-600 dark:text-danger-400'
+                          : 'text-surface-800 dark:text-surface-100'
+                      }`}
+                    >
+                      {stepLabels[step]}
+                    </p>
+                    <p className="text-xs text-surface-500 dark:text-surface-400">
+                      {isFailed
+                        ? '失败'
+                        : isCompleted
+                          ? '已完成'
+                          : isCurrent
+                            ? '进行中'
+                            : '等待中'}
                     </p>
                   </div>
-                </div>
+                </li>
               );
             })}
-          </div>
-        </div>
+          </ol>
+        </Card>
 
         <div className="space-y-4">
-          <div className="rounded-3xl border border-slate-200 bg-slate-950 p-5 text-slate-100 shadow-lg shadow-slate-950/10">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm text-slate-400">当前步骤</p>
-                <p className="mt-1 text-lg font-semibold">
-                  {currentStep ? (stepLabels[currentStep] ?? `执行中：${currentStep}`) : '等待开始'}
-                </p>
-              </div>
-              <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-blue-300">
-                {params.protocol}
-              </div>
-            </div>
-
+          <Card padding="md">
+            <p className="text-xs text-surface-500 dark:text-surface-400">当前步骤</p>
+            <p className="mt-1 text-base font-semibold text-surface-800 dark:text-surface-100">
+              {currentStep ? (stepLabels[currentStep] ?? `执行中：${currentStep}`) : '等待开始'}
+            </p>
             {errorMsg ? (
-              <div className="mt-5 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-                <p className="font-medium">部署失败</p>
-                <p className="mt-1">{errorMsg}</p>
-                <button
-                  type="button"
-                  onClick={onRetry}
-                  className="mt-4 rounded-2xl bg-rose-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-400"
-                >
-                  重新部署
-                </button>
-              </div>
+              <Callout variant="danger" title="部署失败" className="mt-4">
+                <p>{errorMsg}</p>
+                <div className="mt-3">
+                  <Button variant="danger" size="sm" onClick={onRetry}>
+                    重新部署
+                  </Button>
+                </div>
+              </Callout>
             ) : (
-              <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-slate-300">
+              <p className="mt-3 rounded-control bg-surface-50 px-3 py-2.5 text-sm text-surface-500 dark:bg-surface-900 dark:text-surface-400">
                 {params.credential
                   ? `正在连接 ${params.credential.host}:${params.credential.port}，VPS 名称为 ${params.vpsName}，节点名称为 ${params.nodeName}。`
                   : `正在复用已保存的 VPS「${params.vpsName}」进行部署，节点名称为 ${params.nodeName}。`}
-              </div>
+              </p>
             )}
-          </div>
+          </Card>
 
           {downloadState ? (
-            <div className="rounded-3xl border border-blue-200 bg-blue-50 px-5 py-4">
+            <Card padding="md" className="border-brand-200 bg-brand-50 dark:border-brand-500/30 dark:bg-brand-500/10">
               <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-blue-900">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-surface-800 dark:text-surface-100">
                     正在下载 {downloadState.artifact}
                   </p>
-                  <p className="mt-1 text-sm text-blue-700">{downloadState.detail}</p>
+                  <p className="mt-1 text-sm text-surface-500 dark:text-surface-400">
+                    {downloadState.detail}
+                  </p>
                 </div>
-                {downloadState.attempt ? (
-                  <span className="rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-semibold text-blue-700">
-                    第 {downloadState.attempt} 次
-                  </span>
-                ) : null}
+                <div className="flex shrink-0 items-center gap-2">
+                  {downloadState.attempt ? (
+                    <Badge variant="neutral">第 {downloadState.attempt} 次</Badge>
+                  ) : null}
+                  <Badge variant="info">{downloadStageLabels[downloadState.stage]}</Badge>
+                </div>
               </div>
-              <div className="mt-4 h-2 overflow-hidden rounded-full bg-white">
+              {/* 单色 brand 不定态进度条（完成后静态全宽），不再有阶段档位与换色 */}
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white dark:bg-surface-800">
                 <div
-                  className={`h-full rounded-full transition-all duration-500 ${
-                    downloadBarClass(downloadState.stage)
-                  } ${downloadState.stage === 'complete' ? '' : 'animate-pulse'}`}
+                  className={`h-full w-full rounded-full bg-brand-600 dark:bg-brand-500 ${
+                    downloadState.stage === 'complete' ? '' : 'animate-pulse'
+                  }`}
                 />
               </div>
-              <p className="mt-3 text-xs text-blue-600">
+              <p className="mt-2 text-xs text-surface-500 dark:text-surface-400">
                 下载心跳已折叠显示，不再逐行写入日志。
               </p>
-            </div>
+            </Card>
           ) : null}
 
           {warnings.length > 0 ? (
-            <div className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-amber-700">
-              <p className="text-sm font-semibold text-amber-900">部署警告</p>
-              <ul className="mt-3 space-y-2 text-sm">
+            <Callout variant="warning" title="部署警告">
+              <ul className="space-y-1.5">
                 {warnings.map((warning, index) => (
-                  <li
-                    key={`${index}-${warning.step}`}
-                    className="rounded-2xl border border-amber-200 bg-white/60 px-3 py-2"
-                  >
-                    <span className="font-medium text-amber-900">
+                  <li key={`${index}-${warning.step}`}>
+                    <span className="font-medium">
                       [{stepLabels[warning.step] ?? warning.step}]
                     </span>{' '}
                     {warning.message}
                   </li>
                 ))}
               </ul>
-            </div>
+            </Callout>
           ) : null}
 
-          <div className="rounded-3xl border border-slate-200 bg-white">
+          <Card padding="none">
             <button
               type="button"
               onClick={() => setDetailsOpen((open) => !open)}
-              className="flex w-full items-center justify-between px-5 py-4 text-left"
+              aria-expanded={detailsOpen}
+              className="flex w-full items-center justify-between px-4 py-3.5 text-left"
             >
               <div>
-                <p className="text-sm font-semibold text-slate-900">部署日志</p>
-                <p className="text-xs text-slate-500">展开查看后台逐行输出</p>
+                <p className="text-sm font-semibold text-surface-800 dark:text-surface-100">
+                  部署日志
+                </p>
+                <p className="text-xs text-surface-500 dark:text-surface-400">
+                  {detailsOpen ? '点击收起后台逐行输出' : '展开查看后台逐行输出'}
+                </p>
               </div>
-              <span className="text-sm text-blue-600">{detailsOpen ? '收起' : '展开'}</span>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+                className={`h-4 w-4 text-surface-500 transition-transform duration-200 dark:text-surface-400 ${
+                  detailsOpen ? 'rotate-180' : ''
+                }`}
+              >
+                <path d="m6 9 6 6 6-6" />
+              </svg>
             </button>
 
             {detailsOpen ? (
-              <div className="border-t border-slate-100 px-5 py-4">
-                <div className="max-h-72 overflow-auto rounded-2xl bg-slate-950 p-4 font-mono text-xs leading-6 text-slate-200">
+              <div className="border-t border-surface-border px-4 py-3 dark:border-surface-700">
+                <div className="max-h-72 overflow-auto rounded-control bg-surface-900 p-3 font-mono text-xs leading-6 text-surface-200 dark:bg-surface-950 dark:text-surface-300">
                   {visibleLogLines.length > 0 ? (
                     visibleLogLines.map((line, index) => <div key={`${index}-${line}`}>{line}</div>)
                   ) : (
-                    <div className="text-slate-500">
-                      {downloadState ? '下载日志已折叠，等待后续部署输出。' : '暂无日志输出，等待远程任务开始。'}
+                    <div className="text-surface-500">
+                      {downloadState
+                        ? '下载日志已折叠，等待后续部署输出。'
+                        : '暂无日志输出，等待远程任务开始。'}
                     </div>
                   )}
                 </div>
               </div>
             ) : null}
-          </div>
+          </Card>
         </div>
       </div>
-    </section>
+    </Card>
   );
 }

@@ -5,7 +5,17 @@ pub const CONFIGURE_VLESS_REALITY: &str = include_str!("../../scripts/configure_
 pub const INSTALL_HYSTERIA2: &str = include_str!("../../scripts/install_hysteria2.sh");
 pub const CONFIGURE_HYSTERIA2: &str = include_str!("../../scripts/configure_hysteria2.sh");
 pub const SETUP_FIREWALL: &str = include_str!("../../scripts/setup_firewall.sh");
+pub const PROTOCOL_DEPLOYMENT_TRANSACTION: &str =
+    include_str!("../../scripts/protocol_deployment_transaction.sh");
 pub const UNINSTALL_XRAY: &str = include_str!("../../scripts/uninstall_xray.sh");
 pub const UNINSTALL_HYSTERIA2: &str = include_str!("../../scripts/uninstall_hysteria2.sh");
 pub const SUBSCRIPTION_SERVER_PY: &str = include_str!("../../scripts/subscription_server.py");
-pub const SETUP_SUBSCRIPTION_SERVICE: &str = include_str!("../../scripts/setup_subscription_service.sh");
+pub const SETUP_SUBSCRIPTION_SERVICE: &str =
+    include_str!("../../scripts/setup_subscription_service.sh");
+pub const ACTIVATE_SUBSCRIPTION_SERVICE: &str =
+    include_str!("../../scripts/activate_subscription_service.sh");
+pub const CLEANUP_SUBSCRIPTION_STAGING: &str =
+    include_str!("../../scripts/cleanup_subscription_staging.sh");
+pub const REMOVE_SUBSCRIPTION_SERVICE: &str =
+    include_str!("../../scripts/remove_subscription_service.sh");
+pub const CONTROL_MANAGED_SERVICE: &str = include_str!("../../scripts/control_managed_service.sh");

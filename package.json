@@ -1,10 +1,12 @@
 {
   "name": "v-swift",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "build": "npm run typecheck && vite build",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
@@ -17,10 +19,11 @@
     "@tauri-apps/plugin-updater": "^2.10.1",
     "react": "^18",
     "react-dom": "^18",
-    "react-router-dom": "^6"
+    "react-router-dom": "^6.30.4"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "@types/node": "^22",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "@vitejs/plugin-react": "^4",
@@ -28,6 +31,6 @@
     "postcss": "^8",
     "tailwindcss": "^3",
     "typescript": "^5",
-    "vite": "^5"
+    "vite": "^6.4.3"
   }
 }

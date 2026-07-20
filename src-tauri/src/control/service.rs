@@ -1,4 +1,6 @@
+use crate::deploy::ProtocolId;
 use crate::error::{AppError, AppResult};
+use crate::scripts::CONTROL_MANAGED_SERVICE;
 use crate::ssh::SshSession;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -15,15 +17,55 @@ pub struct ServiceStatus {
     pub raw_status: String,
 }
 
-fn protocol_to_service(protocol: &str) -> AppResult<&'static str> {
+#[derive(Debug, Clone, Copy)]
+struct ManagedService {
+    service_name: &'static str,
+    control_protocol: &'static str,
+    protocol_id: ProtocolId,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ServiceAction {
+    Start,
+    Stop,
+    Restart,
+}
+
+impl ServiceAction {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Start => "start",
+            Self::Stop => "stop",
+            Self::Restart => "restart",
+        }
+    }
+}
+
+fn managed_service(protocol: &str) -> AppResult<ManagedService> {
     let normalized = protocol.to_lowercase();
     match normalized.as_str() {
-        "vless-reality" | "vlessreality" | "vless" | "xray" | "reality" => Ok("xray"),
-        "hysteria2" | "hy2" | "hysteria" => Ok("hysteria-server"),
+        "vless-reality" | "vlessreality" | "vless" | "xray" | "reality" => Ok(ManagedService {
+            service_name: "xray",
+            control_protocol: "xray",
+            protocol_id: ProtocolId::VlessReality,
+        }),
+        "hysteria2" | "hy2" | "hysteria" => Ok(ManagedService {
+            service_name: "hysteria-server",
+            control_protocol: "hysteria2",
+            protocol_id: ProtocolId::Hysteria2,
+        }),
         _ => Err(AppError::Other(format!(
             "unsupported service protocol: {protocol}"
         ))),
     }
+}
+
+fn protocol_to_service(protocol: &str) -> AppResult<&'static str> {
+    Ok(managed_service(protocol)?.service_name)
+}
+
+pub(crate) fn protocol_id(protocol: &str) -> AppResult<ProtocolId> {
+    Ok(managed_service(protocol)?.protocol_id)
 }
 
 pub async fn get_service_status(ssh: &SshSession, protocol: &str) -> AppResult<ServiceStatus> {
@@ -60,8 +102,7 @@ pub async fn get_service_status(ssh: &SshSession, protocol: &str) -> AppResult<S
         if line_lower.starts_with("main pid:") {
             let pid_str = line_lower
                 .strip_prefix("main pid:")
-                .map(|s| s.trim().split_whitespace().next())
-                .flatten()
+                .and_then(|s| s.split_whitespace().next())
                 .unwrap_or("");
             main_pid = pid_str.parse().ok();
         }
@@ -69,8 +110,7 @@ pub async fn get_service_status(ssh: &SshSession, protocol: &str) -> AppResult<S
         if line_lower.starts_with("memory:") {
             let mem_str = line_lower
                 .strip_prefix("memory:")
-                .map(|s| s.trim().split_whitespace().next())
-                .flatten()
+                .and_then(|s| s.split_whitespace().next())
                 .unwrap_or("");
             if !mem_str.is_empty() {
                 memory_usage = Some(mem_str.to_string());
@@ -111,94 +151,98 @@ pub async fn get_service_status(ssh: &SshSession, protocol: &str) -> AppResult<S
     })
 }
 
-pub async fn start_service(ssh: &SshSession, protocol: &str) -> AppResult<()> {
-    let service_name = protocol_to_service(protocol)?;
-
-    let output = ssh
-        .exec(&format!("sudo systemctl start {service_name}"))
-        .await?;
-
-    if output.exit_code != 0 {
-        return Err(crate::error::AppError::Other(format!(
-            "failed to start {}: {}",
-            service_name,
-            output.stderr.trim()
-        )));
-    }
-
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-    let status_output = ssh
-        .exec(&format!("systemctl is-active {service_name}"))
-        .await?;
-    if status_output.stdout.trim() != "active" {
-        return Err(crate::error::AppError::Other(format!(
-            "{} started but is not active",
-            service_name
-        )));
-    }
-
-    Ok(())
+pub async fn start_service(
+    ssh: &SshSession,
+    protocol: &str,
+    expected_ownership_hash: &str,
+) -> AppResult<()> {
+    control_service(ssh, protocol, expected_ownership_hash, ServiceAction::Start).await
 }
 
-pub async fn stop_service(ssh: &SshSession, protocol: &str) -> AppResult<()> {
-    let service_name = protocol_to_service(protocol)?;
-
-    let output = ssh
-        .exec(&format!("sudo systemctl stop {service_name}"))
-        .await?;
-
-    if output.exit_code != 0 {
-        return Err(crate::error::AppError::Other(format!(
-            "failed to stop {}: {}",
-            service_name,
-            output.stderr.trim()
-        )));
-    }
-
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-    let status_output = ssh
-        .exec(&format!("systemctl is-active {service_name}"))
-        .await?;
-    if status_output.stdout.trim() == "active" {
-        return Err(crate::error::AppError::Other(format!(
-            "{} stopped but is still active",
-            service_name
-        )));
-    }
-
-    Ok(())
+pub async fn stop_service(
+    ssh: &SshSession,
+    protocol: &str,
+    expected_ownership_hash: &str,
+) -> AppResult<()> {
+    control_service(ssh, protocol, expected_ownership_hash, ServiceAction::Stop).await
 }
 
-pub async fn restart_service(ssh: &SshSession, protocol: &str) -> AppResult<()> {
-    let service_name = protocol_to_service(protocol)?;
+pub async fn restart_service(
+    ssh: &SshSession,
+    protocol: &str,
+    expected_ownership_hash: &str,
+) -> AppResult<()> {
+    control_service(
+        ssh,
+        protocol,
+        expected_ownership_hash,
+        ServiceAction::Restart,
+    )
+    .await
+}
 
-    let output = ssh
-        .exec(&format!("sudo systemctl restart {service_name}"))
-        .await?;
-
-    if output.exit_code != 0 {
-        return Err(crate::error::AppError::Other(format!(
-            "failed to restart {}: {}",
-            service_name,
-            output.stderr.trim()
-        )));
+async fn control_service(
+    ssh: &SshSession,
+    protocol: &str,
+    expected_ownership_hash: &str,
+    action: ServiceAction,
+) -> AppResult<()> {
+    let service = managed_service(protocol)?;
+    if !valid_ownership_hash(expected_ownership_hash) {
+        return Err(AppError::Other(
+            "本地节点缺少有效的所有权凭据，已拒绝执行远端服务控制。".to_string(),
+        ));
     }
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-
-    let status_output = ssh
-        .exec(&format!("systemctl is-active {service_name}"))
+    // Validation and mutation intentionally live in one remote script. This keeps the fail-closed
+    // ownership checks immediately adjacent to systemctl and avoids the former unconditional sudo
+    // path (deployments require a root SSH user).
+    let remote_path = format!(
+        "/tmp/v-swift-control-managed-service-{}.sh",
+        uuid::Uuid::new_v4()
+    );
+    ssh.upload(&remote_path, CONTROL_MANAGED_SERVICE.as_bytes(), 0o700)
         .await?;
-    if status_output.stdout.trim() != "active" {
-        return Err(crate::error::AppError::Other(format!(
-            "{} restarted but is not active",
-            service_name
-        )));
+
+    let command = format!(
+        "bash {} {} {} {}",
+        shell_single_quote(&remote_path),
+        shell_single_quote(action.as_str()),
+        shell_single_quote(service.control_protocol),
+        shell_single_quote(expected_ownership_hash),
+    );
+    let result = ssh.exec(&command).await;
+    let _ = ssh
+        .exec(&format!("rm -f {}", shell_single_quote(&remote_path)))
+        .await;
+
+    let output = result?;
+    if output.exit_code == 0 {
+        return Ok(());
     }
 
-    Ok(())
+    let details = if output.stderr.trim().is_empty() {
+        "远端未返回诊断信息".to_string()
+    } else {
+        output.stderr.trim().to_string()
+    };
+    Err(AppError::Other(format!(
+        "{} 服务安全校验或 {} 操作失败：{}",
+        service.service_name,
+        action.as_str(),
+        details
+    )))
+}
+
+fn valid_ownership_hash(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
 pub async fn get_service_logs(
@@ -216,10 +260,10 @@ pub async fn get_service_logs(
         ))
         .await?;
 
-    if output.exit_code != 0 {
-        if output.stderr.contains("No entries") || output.stderr.contains("cannot allocate") {
-            return Ok(vec![]);
-        }
+    if output.exit_code != 0
+        && (output.stderr.contains("No entries") || output.stderr.contains("cannot allocate"))
+    {
+        return Ok(vec![]);
     }
 
     let logs: Vec<String> = output.stdout.lines().map(|line| line.to_string()).collect();
@@ -235,6 +279,7 @@ mod tests {
     fn protocol_to_service_maps_hysteria2_aliases_to_systemd_unit() {
         for protocol in ["hysteria2", "hy2", "hysteria"] {
             assert_eq!(protocol_to_service(protocol).unwrap(), "hysteria-server");
+            assert_eq!(protocol_id(protocol).unwrap(), ProtocolId::Hysteria2);
         }
     }
 
@@ -242,5 +287,41 @@ mod tests {
     fn protocol_to_service_rejects_unknown_protocols() {
         let err = protocol_to_service("xray; touch /tmp/pwn").unwrap_err();
         assert!(err.to_string().contains("unsupported service protocol"));
+    }
+
+    #[test]
+    fn ownership_hash_must_be_canonical_sha256_hex() {
+        assert!(valid_ownership_hash(
+            "fdcbc807d80f60c6f15ef644d5c372ac92760bd5f414cc3d48c3b320d9d1e689"
+        ));
+        assert!(!valid_ownership_hash(""));
+        assert!(!valid_ownership_hash(
+            "FDCBC807D80F60C6F15EF644D5C372AC92760BD5F414CC3D48C3B320D9D1E689"
+        ));
+        assert!(!valid_ownership_hash(
+            "zdcbc807d80f60c6f15ef644d5c372ac92760bd5f414cc3d48c3b320d9d1e689"
+        ));
+    }
+
+    #[test]
+    fn managed_control_script_requires_root_and_never_uses_sudo() {
+        assert!(CONTROL_MANAGED_SERVICE.contains("root_required_for_service_control"));
+        assert!(CONTROL_MANAGED_SERVICE.contains("systemctl \"${ACTION}\""));
+        assert!(!CONTROL_MANAGED_SERVICE.contains("sudo systemctl"));
+    }
+
+    #[test]
+    fn managed_control_script_only_migrates_legacy_marker_after_ownership_proof() {
+        let ownership_proof = CONTROL_MANAGED_SERVICE
+            .find("managed_${PROTOCOL}_config_no_longer_matches_local_node")
+            .expect("ownership hash check should remain in the control script");
+        let marker_migration = CONTROL_MANAGED_SERVICE
+            .find("migrate_legacy_ownership_marker\nfi")
+            .expect("legacy marker migration should remain in the control script");
+
+        assert!(marker_migration > ownership_proof);
+        assert!(CONTROL_MANAGED_SERVICE.contains("mkdir -m 700 -- \"${MARKER_DIR}\""));
+        assert!(CONTROL_MANAGED_SERVICE.contains("chmod 600 \"${MARKER_TMP}\""));
+        assert!(CONTROL_MANAGED_SERVICE.contains("ln -- \"${MARKER_TMP}\" \"${MARKER_FILE}\""));
     }
 }

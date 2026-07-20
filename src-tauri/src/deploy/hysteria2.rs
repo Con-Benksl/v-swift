@@ -9,8 +9,8 @@ use crate::scripts::{
 use crate::ssh::SshSession;
 
 use super::{
-    detect_os, parse_results, run_script, DeployParams, Deployer, NodeRecord, OsInfo,
-    ProgressSink, ProtocolId,
+    detect_os, ownership_secret_hash, parse_results, run_script, validated_sni, DeployParams,
+    Deployer, NodeRecord, OsInfo, ProgressSink, ProtocolId,
 };
 
 pub struct Hysteria2Deployer;
@@ -60,41 +60,46 @@ impl Deployer for Hysteria2Deployer {
         let os = detect_os(ssh).await?;
         self.validate_os(&os)?;
 
-        run_script(ssh, "prepare", PREPARE, "", progress).await?;
+        run_script(ssh, "prepare", PREPARE, &[], progress).await?;
+        let legacy_ownership_hash = params.legacy_ownership_hash.as_deref().unwrap_or("");
         run_script(
             ssh,
             "install",
             INSTALL_HYSTERIA2,
-            &os.arch,
+            &[os.arch.as_str(), legacy_ownership_hash],
             progress,
         )
         .await?;
 
-        let sni = params
-            .sni
-            .clone()
-            .unwrap_or_else(|| "www.bing.com".to_string());
-        let configure_args = format!("{} {}", params.port, sni);
-        let configure_output = run_script(
-            ssh,
-            "configure",
-            CONFIGURE_HYSTERIA2,
-            &configure_args,
-            progress,
-        )
-        .await?;
-
+        let sni = validated_sni(params.sni.as_deref(), "www.bing.com")?;
+        let port_arg = params.port.to_string();
         run_script(
             ssh,
             "firewall",
             SETUP_FIREWALL,
-            &format!("udp {}", params.port),
+            &["udp", port_arg.as_str()],
+            progress,
+        )
+        .await?;
+
+        let configure_output = run_script(
+            ssh,
+            "configure",
+            CONFIGURE_HYSTERIA2,
+            &[port_arg.as_str(), sni.as_str()],
             progress,
         )
         .await?;
 
         let results = parse_results(&configure_output);
-        let password = results.get("password").cloned().unwrap_or_default();
+        let password = results
+            .get("password")
+            .filter(|value| !value.trim().is_empty())
+            .cloned()
+            .ok_or_else(|| AppError::DeployStepFailed {
+                step: "configure".to_string(),
+                message: "configure script did not return a non-empty password".to_string(),
+            })?;
         let port = results
             .get("port")
             .and_then(|value| value.parse::<u16>().ok())
@@ -125,12 +130,13 @@ impl Deployer for Hysteria2Deployer {
         })
     }
 
-    async fn uninstall(&self, ssh: &SshSession, _node: &NodeRecord) -> AppResult<()> {
+    async fn uninstall(&self, ssh: &SshSession, node: &NodeRecord) -> AppResult<()> {
+        let legacy_ownership_hash = ownership_secret_hash(node).unwrap_or_default();
         run_script(
             ssh,
             "uninstall_hysteria2",
             UNINSTALL_HYSTERIA2,
-            "",
+            &[legacy_ownership_hash.as_str()],
             &NoopProgress,
         )
         .await?;

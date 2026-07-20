@@ -1,8 +1,28 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import UpdateControl from '../components/UpdateControl';
+import {
+  Badge,
+  Button,
+  Callout,
+  Card,
+  Field,
+  PageShell,
+  SectionHeader,
+  Skeleton,
+  inputClass,
+} from '../components/ui';
 import { listNodes, updateVpsProfileHost } from '../ipc';
 import { NodeRecord } from '../ipc/types';
+import {
+  extractErrorMessage,
+  extractPort,
+  formatRelativeTime,
+  normalizeTimestamp,
+  protocolLabel,
+  statusLabel,
+} from '../lib';
+import { useDeploymentActivity } from '../lib/deploymentActivity';
 
 interface VpsNodeGroup {
   id: string;
@@ -14,45 +34,82 @@ interface VpsNodeGroup {
   nodes: NodeRecord[];
 }
 
-function normalizeTimestamp(timestamp: number) {
-  return timestamp < 1_000_000_000_000 ? timestamp * 1000 : timestamp;
+/** 节点状态 → Badge 语义变体（与详情页同一表达：同一数据同一呈现） */
+function statusBadgeVariant(status: NodeRecord['status']): 'success' | 'danger' | 'neutral' {
+  if (status === 'active') return 'success';
+  if (status === 'uninstalled') return 'danger';
+  return 'neutral';
 }
 
-function formatRelativeTime(timestamp: number) {
-  const diff = Date.now() - normalizeTimestamp(timestamp);
-  const minute = 60_000;
-  const hour = 60 * minute;
-  const day = 24 * hour;
-
-  if (diff < minute) return '刚刚';
-  if (diff < hour) return `${Math.floor(diff / minute)} 分钟前`;
-  if (diff < day) return `${Math.floor(diff / hour)} 小时前`;
-  return `${Math.floor(diff / day)} 天前`;
+/** 空态引导图标：服务器轮廓 + 加号（内联极简 stroke SVG） */
+function EmptyServerIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="h-7 w-7"
+    >
+      <rect x="3" y="4" width="18" height="6" rx="1.5" />
+      <rect x="3" y="14" width="18" height="6" rx="1.5" />
+      <path d="M7 7h.01" />
+      <path d="M7 17h.01" />
+      <path d="M17 12v4" />
+      <path d="M15 14h4" />
+    </svg>
+  );
 }
 
-function protocolLabel(protocol: NodeRecord['protocol']) {
-  return protocol === 'vless-reality' ? 'VLESS Reality' : 'Hysteria 2';
+/** 详情跳转 chevron（内联极简 stroke SVG） */
+function ChevronRightIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="h-4 w-4"
+    >
+      <path d="m9 18 6-6-6-6" />
+    </svg>
+  );
 }
 
-function statusLabel(status: NodeRecord['status']) {
-  if (status === 'active') return '运行中';
-  if (status === 'uninstalled') return '已卸载';
-  return '未知';
-}
-
-function statusClass(status: NodeRecord['status']) {
-  if (status === 'active') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
-  if (status === 'uninstalled') return 'border-rose-200 bg-rose-50 text-rose-700';
-  return 'border-slate-200 bg-slate-100 text-slate-600';
-}
-
-function extractPort(node: NodeRecord) {
-  const value = node.protocolParams.port;
-  return typeof value === 'number' ? value : undefined;
+/** 与实物同布局的骨架屏：VPS 组卡（头 + 节点行） */
+function GroupSkeleton() {
+  return (
+    <Card padding="lg" aria-hidden="true">
+      <div className="flex flex-col gap-4 border-b border-surface-border pb-5 dark:border-surface-700 lg:flex-row lg:items-start lg:justify-between">
+        <div className="space-y-3">
+          <Skeleton variant="line" className="h-6 w-44" />
+          <Skeleton variant="line" className="w-64" />
+        </div>
+        <div className="flex items-center gap-3">
+          <Skeleton variant="block" className="h-14 w-36" />
+          <Skeleton variant="block" className="h-14 w-36" />
+        </div>
+      </div>
+      <div className="mt-5 grid gap-3">
+        <Skeleton variant="block" className="h-24 w-full" />
+        <Skeleton variant="block" className="h-24 w-full" />
+      </div>
+    </Card>
+  );
 }
 
 export default function NodeList() {
   const navigate = useNavigate();
+  const {
+    acquire: acquireDeploymentActivity,
+    release: releaseDeploymentActivity,
+  } = useDeploymentActivity();
   const [nodes, setNodes] = useState<NodeRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -61,6 +118,7 @@ export default function NodeList() {
   const [editingHost, setEditingHost] = useState('');
   const [hostUpdateState, setHostUpdateState] = useState<'idle' | 'saving' | 'err'>('idle');
   const [hostUpdateError, setHostUpdateError] = useState('');
+  const hostUpdateInFlightRef = useRef(false);
 
   const vpsId = useCallback(
     (group: VpsNodeGroup) =>
@@ -103,6 +161,7 @@ export default function NodeList() {
   }, [refreshTick]);
 
   const startHostEdit = (group: VpsNodeGroup) => {
+    if (hostUpdateInFlightRef.current) return;
     setEditingVpsId(group.id);
     setEditingHost(group.host);
     setHostUpdateState('idle');
@@ -110,29 +169,15 @@ export default function NodeList() {
   };
 
   const cancelHostEdit = () => {
+    if (hostUpdateInFlightRef.current) return;
     setEditingVpsId(null);
     setEditingHost('');
     setHostUpdateState('idle');
     setHostUpdateError('');
   };
 
-  const extractFriendlyError = (err: unknown): string => {
-    if (err instanceof Error && err.message) return err.message;
-    if (typeof err === 'string' && err) return err;
-    if (err && typeof err === 'object') {
-      const obj = err as Record<string, unknown>;
-      const msg = obj.message;
-      if (typeof msg === 'string' && msg) return msg;
-      if (msg && typeof msg === 'object') {
-        const inner = msg as Record<string, unknown>;
-        if (typeof inner.message === 'string' && inner.message) return inner.message;
-      }
-      if (typeof obj.kind === 'string' && obj.kind) return obj.kind;
-    }
-    return '操作失败';
-  };
-
   const saveHostEdit = (group: VpsNodeGroup) => {
+    if (hostUpdateInFlightRef.current) return;
     const nextHost = editingHost.trim();
     if (!nextHost) {
       setHostUpdateState('err');
@@ -145,17 +190,26 @@ export default function NodeList() {
       return;
     }
 
+    hostUpdateInFlightRef.current = true;
     setHostUpdateState('saving');
     setHostUpdateError('');
+    const activityLease = acquireDeploymentActivity();
 
     void updateVpsProfileHost(group.id, nextHost)
       .then(() => {
-        cancelHostEdit();
+        setEditingVpsId(null);
+        setEditingHost('');
+        setHostUpdateState('idle');
+        setHostUpdateError('');
         setRefreshTick((value) => value + 1);
       })
       .catch((err) => {
         setHostUpdateState('err');
-        setHostUpdateError(extractFriendlyError(err));
+        setHostUpdateError(extractErrorMessage(err));
+      })
+      .finally(() => {
+        hostUpdateInFlightRef.current = false;
+        releaseDeploymentActivity(activityLease);
       });
   };
 
@@ -197,188 +251,226 @@ export default function NodeList() {
   }, [nodes]);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(37,99,235,0.14),_transparent_38%),linear-gradient(180deg,_#f8fafc_0%,_#e2e8f0_100%)] px-6 py-8">
-      <div className="mx-auto max-w-6xl">
-        <section className="rounded-[2rem] border border-white/60 bg-white/75 p-8 shadow-xl shadow-slate-300/30 backdrop-blur">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-600">总览</p>
-              <h1 className="mt-2 text-4xl font-semibold tracking-tight text-slate-950">VPS 节点列表</h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-500">
-                同一台 VPS 会收拢到同一张卡片里，便于复用登录资料并管理多个协议实例。
-              </p>
-            </div>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <UpdateControl />
-              <button
-                type="button"
-                onClick={() => navigate('/new')}
-                className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
-              >
-                新建节点
-              </button>
-            </div>
-          </div>
-        </section>
+    <PageShell width="xl">
+      <SectionHeader
+        eyebrow="总览"
+        title="VPS 节点列表"
+        description="同一台 VPS 会收拢到同一张卡片里，便于复用登录资料并管理多个协议实例。"
+        actions={
+          <>
+            {/* UpdateControl 由外壳代理改造为次要样式，此处仅提供页头挂载位 */}
+            <UpdateControl />
+            <Button variant="primary" onClick={() => navigate('/new')}>
+              新建节点
+            </Button>
+          </>
+        }
+      />
 
-        <div className="mt-8">
-          {loading ? (
-            <div className="rounded-3xl border border-slate-200 bg-white/90 p-10 text-center text-sm text-slate-500 shadow-sm shadow-slate-200/60">
-              正在加载节点列表...
-            </div>
-          ) : error ? (
-            <div className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700">
-              {error}
-            </div>
-          ) : groups.length === 0 ? (
-            <div className="rounded-3xl border border-dashed border-slate-300 bg-white/90 p-10 text-center shadow-sm shadow-slate-200/60">
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-blue-50 text-2xl text-blue-600">
-                +
-              </div>
-              <h2 className="mt-4 text-2xl font-semibold text-slate-950">还没有任何节点</h2>
-              <p className="mt-3 text-sm text-slate-500">
-                先连接一台 VPS，部署第一个协议实例后会自动出现在这里。
-              </p>
-              <button
-                type="button"
-                onClick={() => navigate('/new')}
-                className="mt-6 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
+      <div className="mt-6">
+        {loading ? (
+          <div className="space-y-5">
+            <GroupSkeleton />
+            <GroupSkeleton />
+          </div>
+        ) : error ? (
+          <Callout variant="danger" title="节点列表加载失败">
+            <p>{error}</p>
+            <div className="mt-3">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setRefreshTick((value) => value + 1)}
               >
-                去创建第一个节点
-              </button>
+                重试
+              </Button>
             </div>
-          ) : (
-            <div className="space-y-5">
-              {groups.map((group) => (
-                <section
-                  key={group.id}
-                  className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-sm shadow-slate-200/60"
-                >
-                  <div className="flex flex-col gap-4 border-b border-slate-100 pb-5 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
+          </Callout>
+        ) : groups.length === 0 ? (
+          <Card padding="lg" className="text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-panel bg-brand-50 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300">
+              <EmptyServerIcon />
+            </div>
+            <h2 className="mt-4 text-lg font-semibold text-surface-800 dark:text-surface-100">
+              还没有任何节点
+            </h2>
+            <p className="mt-2 text-sm text-surface-500 dark:text-surface-400">
+              先连接一台 VPS，部署第一个协议实例后会自动出现在这里。
+            </p>
+            <div className="mt-5 flex justify-center">
+              <Button variant="primary" onClick={() => navigate('/new')}>
+                去创建第一个节点
+              </Button>
+            </div>
+          </Card>
+        ) : (
+          <div className="space-y-5">
+            {groups.map((group) => {
+              const protocols = [...new Set(group.nodes.map((item) => item.protocol))];
+              const isEditing = editingVpsId === group.id;
+
+              return (
+                <Card key={group.id} padding="lg">
+                  <div className="flex flex-col gap-4 border-b border-surface-border pb-5 dark:border-surface-700 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="text-2xl font-semibold text-slate-950">{group.vpsName}</h2>
-                        <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-                          {group.nodes.length} 个节点
-                        </span>
+                        <h2 className="break-words text-lg font-semibold text-surface-800 dark:text-surface-100">
+                          {group.vpsName}
+                        </h2>
+                        <Badge variant="neutral">{group.nodes.length} 个节点</Badge>
                       </div>
-                      <p className="mt-3 text-sm text-slate-500">
+                      <p className="mt-2 break-all text-sm text-surface-500 dark:text-surface-400">
                         {group.host}:{group.sshPort} · {group.sshUser}
                       </p>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
                       <div className="grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                          <p className="text-xs uppercase tracking-wide text-slate-400">最近变更</p>
-                          <p className="mt-1 text-sm font-medium text-slate-800">
+                        <div className="rounded-control bg-surface-100 px-4 py-3 dark:bg-surface-900">
+                          <p className="text-xs text-surface-500 dark:text-surface-400">最近变更</p>
+                          <p className="mt-1 text-sm font-medium text-surface-700 dark:text-surface-200">
                             {formatRelativeTime(group.latestCreatedAt)}
                           </p>
                         </div>
-                        <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                          <p className="text-xs uppercase tracking-wide text-slate-400">协议类型</p>
-                          <p className="mt-1 text-sm font-medium text-slate-800">
-                            {[...new Set(group.nodes.map((item) => protocolLabel(item.protocol)))].join(' / ')}
-                          </p>
+                        <div className="rounded-control bg-surface-100 px-4 py-3 dark:bg-surface-900">
+                          <p className="text-xs text-surface-500 dark:text-surface-400">协议类型</p>
+                          <div className="mt-1.5 flex flex-wrap gap-1.5">
+                            {protocols.map((protocol) => (
+                              <Badge key={protocol} variant="info">
+                                {protocolLabel(protocol)}
+                              </Badge>
+                            ))}
+                          </div>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/control?vpsId=${encodeURIComponent(vpsId(group))}`)}
-                        className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-500"
-                      >
-                        控制面板
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => startHostEdit(group)}
-                        className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-300 hover:text-blue-700"
-                      >
-                        修改 IP
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() =>
+                            navigate(`/control?vpsId=${encodeURIComponent(vpsId(group))}`)
+                          }
+                        >
+                          控制面板
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => startHostEdit(group)}
+                          disabled={hostUpdateState === 'saving'}
+                        >
+                          修改 IP
+                        </Button>
+                      </div>
                     </div>
                   </div>
 
-                  {editingVpsId === group.id ? (
-                    <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4">
-                      <label className="block">
-                        <span className="text-sm font-medium text-blue-900">新的服务器 IP / 域名</span>
-                        <input
-                          className="mt-2 w-full rounded-2xl border border-blue-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
-                          value={editingHost}
-                          onChange={(event) => setEditingHost(event.target.value)}
-                          placeholder={group.host}
-                        />
-                      </label>
-                      {hostUpdateState === 'err' && hostUpdateError ? (
-                        <p className="mt-3 text-xs text-rose-700">{hostUpdateError}</p>
+                  {/* 修改 IP 内联面板：grid-rows 过渡实现平滑展开，Enter 保存 / Esc 取消 */}
+                  <div
+                    className={`grid transition-[grid-template-rows,opacity] duration-200 ease-out ${
+                      isEditing ? 'mt-5 grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+                    }`}
+                  >
+                    <div className="min-h-0 overflow-hidden">
+                      {isEditing ? (
+                        <div className="rounded-card border border-surface-border bg-surface-50 p-4 dark:border-surface-700 dark:bg-surface-900">
+                          <Field
+                            label="新的服务器 IP / 域名"
+                            error={
+                              hostUpdateState === 'err' && hostUpdateError
+                                ? hostUpdateError
+                                : undefined
+                            }
+                          >
+                            <input
+                              className={inputClass}
+                              value={editingHost}
+                              onChange={(event) => setEditingHost(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                  event.preventDefault();
+                                  saveHostEdit(group);
+                                } else if (event.key === 'Escape') {
+                                  event.preventDefault();
+                                  cancelHostEdit();
+                                }
+                              }}
+                              placeholder={group.host}
+                              disabled={hostUpdateState === 'saving'}
+                              autoFocus
+                            />
+                          </Field>
+                          <div className="mt-4 flex flex-wrap justify-end gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={cancelHostEdit}
+                              disabled={hostUpdateState === 'saving'}
+                            >
+                              取消
+                            </Button>
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              onClick={() => saveHostEdit(group)}
+                              loading={hostUpdateState === 'saving'}
+                              loadingText="保存中…"
+                            >
+                              保存 IP
+                            </Button>
+                          </div>
+                        </div>
                       ) : null}
-                      <div className="mt-4 flex flex-wrap justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={cancelHostEdit}
-                          disabled={hostUpdateState === 'saving'}
-                          className="rounded-2xl border border-blue-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          取消
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => saveHostEdit(group)}
-                          disabled={hostUpdateState === 'saving'}
-                          className="rounded-2xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-300"
-                        >
-                          {hostUpdateState === 'saving' ? '保存中...' : '保存 IP'}
-                        </button>
-                      </div>
                     </div>
-                  ) : null}
+                  </div>
 
                   <div className="mt-5 grid gap-3">
                     {group.nodes.map((node) => {
                       const port = extractPort(node);
 
                       return (
-                        <button
+                        <article
                           key={node.id}
-                          type="button"
-                          onClick={() => navigate(`/nodes/${node.id}`)}
-                          className="rounded-3xl border border-slate-200 bg-slate-50 p-5 text-left transition hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 hover:shadow-md hover:shadow-blue-100/60"
+                          className="rounded-card border border-surface-border bg-surface-50 p-4 transition-colors duration-150 hover:border-brand-300 dark:border-surface-700 dark:bg-surface-900 dark:hover:border-brand-700"
                         >
-                          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                            <div>
+                          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                            <div className="min-w-0">
                               <div className="flex flex-wrap items-center gap-2">
-                                <h3 className="text-lg font-semibold text-slate-950">{node.name}</h3>
-                                <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-                                  {protocolLabel(node.protocol)}
-                                </span>
-                                <span
-                                  className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusClass(node.status)}`}
-                                >
+                                <h3 className="break-words text-base font-semibold text-surface-800 dark:text-surface-100">
+                                  {node.name}
+                                </h3>
+                                <Badge variant="info">{protocolLabel(node.protocol)}</Badge>
+                                <Badge variant={statusBadgeVariant(node.status)} dot>
                                   {statusLabel(node.status)}
-                                </span>
+                                </Badge>
                               </div>
-                              <p className="mt-3 text-sm text-slate-500">
-                                {port ? `服务端口 ${port}` : '端口待确认'} · 创建于{' '}
+                              <p className="mt-2 text-sm text-surface-500 dark:text-surface-400">
+                                {port !== undefined ? `服务端口 ${port}` : '端口未记录'} · 创建于{' '}
                                 {formatRelativeTime(node.createdAt)}
                               </p>
-                            </div>
-                            <div className="rounded-2xl bg-white px-4 py-3">
-                              <p className="text-xs uppercase tracking-wide text-slate-400">节点 ID</p>
-                              <p className="mt-1 max-w-[18rem] truncate text-sm font-medium text-slate-800">
-                                {node.id}
+                              <p className="mt-1.5 font-mono text-xs text-surface-500 dark:text-surface-400">
+                                <span className="select-none">节点 ID：</span>
+                                <span className="select-text break-all">{node.id}</span>
                               </p>
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => navigate(`/nodes/${node.id}`)}
+                              className="inline-flex shrink-0 items-center gap-1 self-start rounded-control px-2 py-1.5 text-sm font-medium text-brand-600 transition-colors duration-150 hover:bg-brand-50 hover:text-brand-700 dark:text-brand-300 dark:hover:bg-brand-900/40 dark:hover:text-brand-200 lg:self-center"
+                            >
+                              查看详情
+                              <ChevronRightIcon />
+                            </button>
                           </div>
-                        </button>
+                        </article>
                       );
                     })}
                   </div>
-                </section>
-              ))}
-            </div>
-          )}
-        </div>
+                </Card>
+              );
+            })}
+          </div>
+        )}
       </div>
-    </div>
+    </PageShell>
   );
 }

@@ -1,215 +1,411 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import SubscriptionView from '../components/SubscriptionView';
+import {
+  Badge,
+  Button,
+  Callout,
+  Card,
+  Modal,
+  PageShell,
+  SectionHeader,
+  Skeleton,
+  SkeletonText,
+  StatCard,
+  useToast,
+} from '../components/ui';
 import { getNode, getSubscription, uninstallNode } from '../ipc';
-import { extractIpcErrorMessage } from '../ipc/errors';
 import { NodeRecord, SubscriptionResult } from '../ipc/types';
+import {
+  extractErrorMessage,
+  extractPort,
+  formatAbsoluteTime,
+  protocolLabel,
+  statusLabel,
+} from '../lib';
+import { useDeploymentActivity } from '../lib/deploymentActivity';
 
-function normalizeTimestamp(timestamp: number) {
-  return timestamp < 1_000_000_000_000 ? timestamp * 1000 : timestamp;
+/** 节点状态 → Badge 语义变体（与列表页同一表达：同一数据同一呈现） */
+function statusBadgeVariant(status: NodeRecord['status']): 'success' | 'danger' | 'neutral' {
+  if (status === 'active') return 'success';
+  if (status === 'uninstalled') return 'danger';
+  return 'neutral';
 }
 
-function formatAbsoluteTime(timestamp: number) {
-  return new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(normalizeTimestamp(timestamp));
+/** 返回图标（内联极简 stroke SVG） */
+function ArrowLeftIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="h-4 w-4"
+    >
+      <path d="m12 19-7-7 7-7" />
+      <path d="M19 12H5" />
+    </svg>
+  );
 }
 
-function protocolLabel(protocol: NodeRecord['protocol']) {
-  return protocol === 'vless-reality' ? 'VLESS Reality' : 'Hysteria 2';
-}
-
-function statusLabel(status: NodeRecord['status']) {
-  if (status === 'active') return '运行中';
-  if (status === 'uninstalled') return '已卸载';
-  return '未知';
-}
-
-function extractPort(node: NodeRecord) {
-  const value = node.protocolParams.port;
-  return typeof value === 'number' ? value : '未记录';
+/** 与 StatCard 实物同布局的指标卡骨架 */
+function StatCardSkeleton() {
+  return (
+    <Card padding="md" aria-hidden="true">
+      <Skeleton variant="line" className="w-14" />
+      <Skeleton variant="line" className="mt-2.5 h-6 w-24" />
+    </Card>
+  );
 }
 
 export default function NodeDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
+  const {
+    acquire: acquireDeploymentActivity,
+    release: releaseDeploymentActivity,
+  } = useDeploymentActivity();
   const [node, setNode] = useState<NodeRecord | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionResult | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [showConfirm, setShowConfirm] = useState(false);
+  const [nodeLoading, setNodeLoading] = useState(true);
+  const [nodeError, setNodeError] = useState('');
+  const [nodeReloadTick, setNodeReloadTick] = useState(0);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(true);
+  const [subscriptionError, setSubscriptionError] = useState('');
+  const [subscriptionReloadTick, setSubscriptionReloadTick] = useState(0);
+  const [pendingUninstall, setPendingUninstall] = useState<{ id: string; name: string } | null>(
+    null,
+  );
   const [uninstalling, setUninstalling] = useState(false);
+  const [uninstallError, setUninstallError] = useState('');
+  const mountedRef = useRef(false);
+  const currentNodeIdRef = useRef(id);
+  const uninstallRequestIdRef = useRef(0);
+  const uninstallInFlightRef = useRef(false);
+
+  currentNodeIdRef.current = id;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      uninstallRequestIdRef.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     if (!id) {
-      setError('缺少节点 ID');
-      setLoading(false);
+      setNode(null);
+      setNodeError('缺少节点 ID');
+      setNodeLoading(false);
       return;
     }
 
     let cancelled = false;
-    setLoading(true);
-    setError('');
+    setNode(null);
+    setNodeLoading(true);
+    setNodeError('');
 
-    Promise.all([getNode(id), getSubscription(id)])
-      .then(([record, sub]) => {
+    void getNode(id)
+      .then((record) => {
         if (cancelled) {
           return;
         }
 
         setNode(record);
-        setSubscription(sub);
       })
       .catch((err) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : '加载节点详情失败');
+          setNodeError(extractErrorMessage(err, '加载节点详情失败'));
         }
       })
       .finally(() => {
         if (!cancelled) {
-          setLoading(false);
+          setNodeLoading(false);
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, nodeReloadTick]);
 
-  const handleUninstall = () => {
+  useEffect(() => {
     if (!id) {
+      setSubscription(null);
+      setSubscriptionError('缺少节点 ID');
+      setSubscriptionLoading(false);
       return;
     }
 
-    setUninstalling(true);
-    void uninstallNode(id)
-      .then(() => navigate('/'))
+    let cancelled = false;
+    setSubscription(null);
+    setSubscriptionLoading(true);
+    setSubscriptionError('');
+
+    void getSubscription(id)
+      .then((result) => {
+        if (!cancelled) {
+          setSubscription(result);
+        }
+      })
       .catch((err) => {
-        setError(extractIpcErrorMessage(err, '卸载失败'));
-        setShowConfirm(false);
+        if (!cancelled) {
+          setSubscriptionError(extractErrorMessage(err, '加载订阅信息失败'));
+        }
       })
       .finally(() => {
-        setUninstalling(false);
+        if (!cancelled) {
+          setSubscriptionLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [id, subscriptionReloadTick]);
+
+  useEffect(() => {
+    if (!uninstalling) {
+      setPendingUninstall((current) => (current?.id === id ? current : null));
+    }
+  }, [id, uninstalling]);
+
+  const openConfirm = () => {
+    const target = node?.id === id ? node : null;
+    if (!target) return;
+    setUninstallError('');
+    setPendingUninstall({ id: target.id, name: target.name });
+  };
+
+  const closeConfirm = () => {
+    if (uninstalling) {
+      return;
+    }
+    setPendingUninstall(null);
+    setUninstallError('');
+  };
+
+  const handleUninstall = () => {
+    const target = pendingUninstall;
+    if (!target || uninstallInFlightRef.current) {
+      return;
+    }
+
+    const requestId = uninstallRequestIdRef.current + 1;
+    uninstallRequestIdRef.current = requestId;
+    const isCurrentRequest = () =>
+      mountedRef.current &&
+      uninstallRequestIdRef.current === requestId &&
+      currentNodeIdRef.current === target.id;
+    const activityLease = acquireDeploymentActivity();
+    uninstallInFlightRef.current = true;
+    setUninstalling(true);
+    setUninstallError('');
+
+    void uninstallNode(target.id)
+      .then((outcome) => {
+        if (!isCurrentRequest()) {
+          return;
+        }
+        if (outcome.warnings.length > 0) {
+          toast.info(outcome.warnings.join('；'), { duration: 7000 });
+        } else {
+          toast.success('节点已卸载');
+        }
+        navigate('/');
+      })
+      .catch((err) => {
+        if (isCurrentRequest()) {
+          setUninstallError(extractErrorMessage(err, '卸载失败'));
+          // Backend may deliberately preserve a retryable `unknown` record after a partial
+          // remote uninstall. Reload so the page does not keep presenting stale "active" state.
+          setNodeReloadTick((value) => value + 1);
+        }
+      })
+      .finally(() => {
+        releaseDeploymentActivity(activityLease);
+        if (uninstallRequestIdRef.current === requestId) {
+          uninstallInFlightRef.current = false;
+        }
+        if (isCurrentRequest()) {
+          setUninstalling(false);
+        }
       });
   };
 
+  const currentNode = node?.id === id ? node : null;
+  const port = currentNode ? extractPort(currentNode) : undefined;
+
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,_rgba(37,99,235,0.14),_transparent_35%),linear-gradient(180deg,_#f8fafc_0%,_#e2e8f0_100%)] px-6 py-8">
-      <div className="mx-auto max-w-6xl space-y-8">
-        <section className="rounded-[2rem] border border-white/60 bg-white/80 p-8 shadow-xl shadow-slate-300/30 backdrop-blur">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-600">节点详情</p>
-              <h1 className="mt-2 text-4xl font-semibold tracking-tight text-slate-950">
-                {node?.name ?? '正在加载'}
-              </h1>
-              <p className="mt-3 text-sm text-slate-500">
-                {node
-                  ? `${node.vpsName} · ${node.host}:${node.sshPort} · ${protocolLabel(node.protocol)}`
-                  : '读取节点信息中'}
-              </p>
-            </div>
+    <PageShell width="lg">
+      <SectionHeader
+        eyebrow="节点详情"
+        title={currentNode?.name ?? '节点详情'}
+        description={
+          currentNode
+            ? `${currentNode.vpsName} · ${currentNode.host}:${currentNode.sshPort} · ${protocolLabel(currentNode.protocol)}`
+            : nodeLoading
+              ? '读取节点信息中'
+              : undefined
+        }
+        actions={
+          <>
+            <Button variant="ghost" onClick={() => navigate('/')} disabled={uninstalling}>
+              <ArrowLeftIcon />
+              返回列表
+            </Button>
+            <Button
+              variant="danger"
+              onClick={openConfirm}
+              disabled={!currentNode || uninstalling}
+            >
+              卸载节点
+            </Button>
+          </>
+        }
+      />
 
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => navigate('/')}
-                className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-blue-300 hover:text-blue-700"
+      {/* 加载 / 错误 / 成功三态共享同一容器结构，消除跳动 */}
+      <div className="mt-6">
+        {nodeError && !nodeLoading ? (
+          <Callout variant="danger" title="节点详情加载失败">
+            <p>{nodeError}</p>
+            <div className="mt-3">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setNodeReloadTick((value) => value + 1)}
               >
-                返回列表
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowConfirm(true)}
-                disabled={!node || uninstalling}
-                className="rounded-2xl bg-rose-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-rose-500 disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                {uninstalling ? '卸载中...' : '卸载节点'}
-              </button>
+                重试
+              </Button>
             </div>
-          </div>
-
-          {node ? (
-            <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 px-5 py-4">
-                <p className="text-xs uppercase tracking-wide text-slate-400">状态</p>
-                <p className="mt-2 text-lg font-semibold text-slate-900">{statusLabel(node.status)}</p>
-              </div>
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 px-5 py-4">
-                <p className="text-xs uppercase tracking-wide text-slate-400">VPS 名称</p>
-                <p className="mt-2 text-lg font-semibold text-slate-900">{node.vpsName}</p>
-              </div>
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 px-5 py-4">
-                <p className="text-xs uppercase tracking-wide text-slate-400">SSH 登录</p>
-                <p className="mt-2 text-lg font-semibold text-slate-900">{node.sshUser}</p>
-                <p className="mt-1 text-sm text-slate-500">
-                  {node.host}:{node.sshPort}
-                </p>
-              </div>
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 px-5 py-4">
-                <p className="text-xs uppercase tracking-wide text-slate-400">协议端口</p>
-                <p className="mt-2 text-lg font-semibold text-slate-900">{extractPort(node)}</p>
-              </div>
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 px-5 py-4">
-                <p className="text-xs uppercase tracking-wide text-slate-400">创建时间</p>
-                <p className="mt-2 text-lg font-semibold text-slate-900">
-                  {formatAbsoluteTime(node.createdAt)}
-                </p>
-              </div>
+          </Callout>
+        ) : (
+          <>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+              {nodeLoading || !currentNode ? (
+                <>
+                  <StatCardSkeleton />
+                  <StatCardSkeleton />
+                  <StatCardSkeleton />
+                  <StatCardSkeleton />
+                  <StatCardSkeleton />
+                </>
+              ) : (
+                <>
+                  <StatCard
+                    label="状态"
+                    value={
+                      <Badge variant={statusBadgeVariant(currentNode.status)} dot>
+                        {statusLabel(currentNode.status)}
+                      </Badge>
+                    }
+                  />
+                  <StatCard label="VPS 名称" value={currentNode.vpsName} />
+                  <StatCard
+                    label="SSH 登录"
+                    value={currentNode.sshUser}
+                    subValue={`${currentNode.host}:${currentNode.sshPort}`}
+                  />
+                  <StatCard
+                    label="协议端口"
+                    value={port !== undefined ? String(port) : '未记录'}
+                  />
+                  <StatCard label="创建时间" value={formatAbsoluteTime(currentNode.createdAt)} />
+                </>
+              )}
             </div>
-          ) : null}
-        </section>
 
-        {loading ? (
-          <div className="rounded-3xl border border-slate-200 bg-white/90 p-10 text-center text-sm text-slate-500 shadow-sm shadow-slate-200/60">
-            正在加载节点详情...
-          </div>
-        ) : error ? (
-          <div className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700">
-            {error}
-          </div>
-        ) : node && subscription ? (
-          <SubscriptionView
-            node={node}
-            uri={subscription.uri}
-            qrSvg={subscription.qrSvg}
-            managedUri={subscription.managedUri}
-            managedQrSvg={subscription.managedQrSvg}
-          />
-        ) : null}
+            <div className="mt-6">
+              {nodeLoading || !currentNode ? (
+                <Card padding="lg">
+                  <div className="space-y-4" aria-hidden="true">
+                    <Skeleton variant="line" className="h-6 w-40" />
+                    <SkeletonText lines={3} />
+                    <Skeleton variant="block" className="h-40 w-full" />
+                  </div>
+                </Card>
+              ) : subscriptionLoading ? (
+                <Card padding="lg">
+                  <div className="space-y-4" aria-hidden="true">
+                    <Skeleton variant="line" className="h-6 w-40" />
+                    <SkeletonText lines={3} />
+                    <Skeleton variant="block" className="h-40 w-full" />
+                  </div>
+                </Card>
+              ) : subscriptionError ? (
+                <Callout variant="danger" title="订阅信息加载失败">
+                  <p>{subscriptionError}</p>
+                  <p className="mt-2 text-xs opacity-80">
+                    节点详情仍可正常查看；这里只会重试订阅信息，不会重新加载节点或执行远端操作。
+                  </p>
+                  <div className="mt-3">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setSubscriptionReloadTick((value) => value + 1)}
+                    >
+                      重试订阅
+                    </Button>
+                  </div>
+                </Callout>
+              ) : subscription ? (
+                <SubscriptionView
+                  node={currentNode}
+                  uri={subscription.uri}
+                  qrSvg={subscription.qrSvg}
+                  managedUri={subscription.managedUri}
+                  managedQrSvg={subscription.managedQrSvg}
+                />
+              ) : (
+                <Callout variant="danger" title="订阅信息不可用">
+                  未返回订阅信息，请重试。
+                </Callout>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
-      {showConfirm ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-6 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl shadow-slate-950/20">
-            <h2 className="text-xl font-semibold text-slate-950">确认卸载节点？</h2>
-            <p className="mt-3 text-sm leading-6 text-slate-500">
-              这会调用后端卸载流程并移除当前节点记录，但已保存的 VPS 登录资料会继续保留，方便以后复用。
-            </p>
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setShowConfirm(false)}
-                className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={handleUninstall}
-                disabled={uninstalling}
-                className="rounded-2xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-500 disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                确认卸载
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-    </div>
+      <Modal
+        open={pendingUninstall !== null}
+        onClose={closeConfirm}
+        title="确认卸载节点？"
+        size="sm"
+        closeOnOverlayClick={!uninstalling}
+        closeOnEsc={!uninstalling}
+        showCloseButton={!uninstalling}
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeConfirm} disabled={uninstalling}>
+              取消
+            </Button>
+            <Button
+              variant="danger"
+              onClick={handleUninstall}
+              loading={uninstalling}
+              loadingText="卸载中…"
+            >
+              确认卸载
+            </Button>
+          </>
+        }
+      >
+        <p>
+          将卸载节点「{pendingUninstall?.name}」。这会调用后端卸载流程并移除该节点记录，但已保存的 VPS
+          登录资料会继续保留，方便以后复用。
+        </p>
+        {uninstallError ? (
+          <Callout variant="danger" title="卸载失败" className="mt-3">
+            {uninstallError}
+          </Callout>
+        ) : null}
+      </Modal>
+    </PageShell>
   );
 }

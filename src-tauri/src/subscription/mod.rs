@@ -98,7 +98,15 @@ fn encode_userinfo(value: &str) -> String {
 }
 
 fn encode_host(value: &str) -> String {
-    utf8_percent_encode(value, URI_COMPONENT_ENCODE_SET).to_string()
+    let normalized = value
+        .strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+        .unwrap_or(value);
+    if normalized.parse::<std::net::Ipv6Addr>().is_ok() {
+        format!("[{normalized}]")
+    } else {
+        utf8_percent_encode(normalized, URI_COMPONENT_ENCODE_SET).to_string()
+    }
 }
 
 fn encode_query_value(value: &str) -> String {
@@ -169,5 +177,32 @@ mod tests {
 
         let subscription = build(&node).expect("build should succeed");
         assert!(subscription.uri.contains("&insecure=1"));
+    }
+
+    #[test]
+    fn test_vless_reality_uri_brackets_ipv6_host() {
+        let node = NodeRecord {
+            id: "node-ipv6".to_string(),
+            vps_id: "vps-ipv6".to_string(),
+            vps_name: "IPv6 VPS".to_string(),
+            name: "IPv6 Node".to_string(),
+            host: "2001:db8::1".to_string(),
+            ssh_port: 22,
+            ssh_user: "root".to_string(),
+            protocol: ProtocolId::VlessReality,
+            protocol_params: json!({
+                "uuid": "123e4567-e89b-12d3-a456-426614174000",
+                "public_key": "pub_key-123",
+                "short_id": "abcd1234",
+                "port": 443,
+                "sni": "cdn.example.com",
+                "flow": "xtls-rprx-vision"
+            }),
+            status: "active".to_string(),
+            created_at: 3,
+        };
+
+        let subscription = build(&node).expect("IPv6 subscription should build");
+        assert!(subscription.uri.contains("@[2001:db8::1]:443"));
     }
 }

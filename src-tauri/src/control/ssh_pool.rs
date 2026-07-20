@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock, RwLockWriteGuard};
 
 use crate::credentials;
 use crate::error::{AppError, AppResult};
@@ -13,6 +13,8 @@ use super::ConnectionStatus;
 pub struct SshPool {
     sessions: Mutex<HashMap<String, Arc<SshSession>>>,
     statuses: Mutex<HashMap<String, ConnectionStatus>>,
+    connect_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    connection_barrier: RwLock<()>,
 }
 
 impl SshPool {
@@ -20,6 +22,8 @@ impl SshPool {
         Self {
             sessions: Mutex::new(HashMap::new()),
             statuses: Mutex::new(HashMap::new()),
+            connect_locks: Mutex::new(HashMap::new()),
+            connection_barrier: RwLock::new(()),
         }
     }
 
@@ -35,19 +39,42 @@ impl SshPool {
             }
         }
 
+        // 常规 VPS 可并行建连；同一 VPS 通过 keyed single-flight 去重。
+        // host 更新会取得 barrier 写锁，在本地档案提交前阻止任何新连接读取旧 host。
+        let _barrier_guard = self.connection_barrier.read().await;
+        let connect_lock = {
+            let mut locks = self.connect_locks.lock().await;
+            Arc::clone(
+                locks
+                    .entry(vps_id.to_string())
+                    .or_insert_with(|| Arc::new(Mutex::new(()))),
+            )
+        };
+        let _connect_guard = connect_lock.lock().await;
+        {
+            let sessions = self.sessions.lock().await;
+            if let Some(session) = sessions.get(vps_id) {
+                return Ok(Arc::clone(session));
+            }
+        }
+
         {
             let mut statuses = self.statuses.lock().await;
             statuses.insert(vps_id.to_string(), ConnectionStatus::Connecting);
         }
 
-        let profile = storage.get_vps_profile(vps_id)?;
-        let credential = build_credential(&profile)?;
+        let connection_result = async {
+            let profile = storage.get_vps_profile(vps_id)?;
+            let credential = build_credential(&profile)?;
+            SshSession::connect(&credential).await.map(Arc::new)
+        }
+        .await;
 
-        let session = match SshSession::connect(&credential).await {
+        let session = match connection_result {
             Ok(s) => {
                 let mut statuses = self.statuses.lock().await;
                 statuses.insert(vps_id.to_string(), ConnectionStatus::Connected);
-                Arc::new(s)
+                s
             }
             Err(err) => {
                 let mut statuses = self.statuses.lock().await;
@@ -65,6 +92,11 @@ impl SshPool {
         sessions.insert(vps_id.to_string(), Arc::clone(&session));
 
         Ok(session)
+    }
+
+    /// 在档案连接信息变更期间阻止任何新的池化连接读取旧档案。
+    pub(crate) async fn lock_new_connections(&self) -> RwLockWriteGuard<'_, ()> {
+        self.connection_barrier.write().await
     }
 
     pub async fn disconnect(&self, vps_id: &str) -> AppResult<()> {
@@ -144,5 +176,6 @@ fn build_credential(profile: &VpsProfileRecord) -> AppResult<VpsCredential> {
         port: profile.ssh_port,
         user: profile.ssh_user.clone(),
         auth,
+        host_key_aliases: Vec::new(),
     })
 }

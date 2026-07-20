@@ -1,14 +1,9 @@
 import { useEffect, useState } from 'react';
 import { check, type DownloadEvent, type Update } from '@tauri-apps/plugin-updater';
-import { relaunch } from '@tauri-apps/plugin-process';
+import { extractErrorMessage, formatBytes } from '../lib';
+import { Button } from './ui';
 
 type UpdateState = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'latest' | 'error';
-
-function formatBytes(value: number) {
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / 1024 / 1024).toFixed(1)} MB`;
-}
 
 export default function UpdateControl() {
   const [state, setState] = useState<UpdateState>('idle');
@@ -19,7 +14,7 @@ export default function UpdateControl() {
 
   const checkForUpdate = async (manual = false) => {
     setState('checking');
-    setMessage(manual ? '正在检查更新...' : '');
+    setMessage(manual ? '正在检查更新…' : '');
     setDownloaded(0);
     setTotal(null);
 
@@ -44,7 +39,7 @@ export default function UpdateControl() {
       }
 
       setState('error');
-      setMessage(error instanceof Error ? error.message : '检查更新失败');
+      setMessage(extractErrorMessage(error, '检查更新失败，请稍后重试'));
     }
   };
 
@@ -58,7 +53,7 @@ export default function UpdateControl() {
     }
 
     setState('downloading');
-    setMessage('正在下载更新...');
+    setMessage('正在下载更新…');
     setDownloaded(0);
     setTotal(null);
 
@@ -74,16 +69,17 @@ export default function UpdateControl() {
         }
 
         if (event.event === 'Finished') {
-          setMessage('更新已安装，正在重启应用...');
+          setMessage('更新已安装，请在远端任务结束后手动重启应用');
         }
       });
-
-      setState('ready');
-      await relaunch();
     } catch (error) {
       setState('error');
-      setMessage(error instanceof Error ? error.message : '下载或安装更新失败');
+      setMessage(extractErrorMessage(error, '下载或安装更新失败，请稍后重试'));
+      return;
     }
+
+    setState('ready');
+    setMessage('更新已安装，请在远端任务结束后手动重启应用');
   };
 
   const progressLabel =
@@ -97,10 +93,11 @@ export default function UpdateControl() {
     <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
       {message ? (
         <span
-          className={`rounded-2xl border px-4 py-2 text-sm ${
+          role={state === 'error' ? 'alert' : 'status'}
+          className={`rounded-control border px-3 py-1.5 text-xs leading-relaxed ${
             state === 'error'
-              ? 'border-rose-200 bg-rose-50 text-rose-700'
-              : 'border-blue-200 bg-blue-50 text-blue-700'
+              ? 'border-danger-200 bg-danger-50 text-danger-700 dark:border-danger-700/40 dark:bg-danger-700/15 dark:text-danger-200'
+              : 'border-surface-border bg-surface-card text-surface-600 dark:border-surface-700 dark:bg-surface-800 dark:text-surface-300'
           }`}
         >
           {state === 'downloading' && progressLabel ? `${message} ${progressLabel}` : message}
@@ -108,22 +105,20 @@ export default function UpdateControl() {
       ) : null}
 
       {state === 'available' ? (
-        <button
-          type="button"
-          onClick={installUpdate}
-          className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-500"
-        >
+        <Button variant="secondary" size="sm" onClick={() => void installUpdate()}>
           下载并安装
-        </button>
+        </Button>
       ) : (
-        <button
-          type="button"
-          onClick={() => checkForUpdate(true)}
-          disabled={state === 'checking' || state === 'downloading'}
-          className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => void checkForUpdate(true)}
+          loading={state === 'checking'}
+          loadingText="检查中…"
+          disabled={state === 'downloading'}
         >
-          {state === 'checking' ? '检查中...' : '检查更新'}
-        </button>
+          检查更新
+        </Button>
       )}
     </div>
   );

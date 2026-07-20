@@ -1,9 +1,37 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
     <title>V-Swift</title>
+    <script>
+      // React 挂载前同步主题：localStorage 优先，其次跟随系统，防暗色模式首屏闪烁
+      (function () {
+        var saved = null;
+        try {
+          saved = localStorage.getItem('v-swift-theme');
+        } catch (e) {
+          // localStorage 不可用时仍继续读取系统主题
+        }
+        var dark =
+          saved === 'dark' ||
+          (saved !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.classList.toggle('dark', dark);
+        document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+      })();
+    </script>
+    <style>
+      /* 挂载前兜底底色，与 app-shell 一致，防白闪（React 接管后由 class 策略暗色模式覆盖） */
+      html,
+      body {
+        background-color: #fafaf9;
+      }
+      html.dark,
+      html.dark body {
+        background-color: #1c1917;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 import json
 import os
+import socket
 import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 
-HOST = os.getenv("SUB_HOST", "0.0.0.0")
 PORT = int(os.getenv("SUB_PORT", "18080"))
 IFACE = os.getenv("SUB_IFACE", "eth0")
 CONFIG_PATH = os.getenv("SUB_CONFIG_PATH", "/opt/vps-subscription/config.yaml")
 TOTAL_BYTES = int(os.getenv("SUB_TOTAL_BYTES", str(3000 * 1000 * 1000 * 1000)))
-EXPIRE_TS = int(os.getenv("SUB_EXPIRE_TS", "1779638400"))
+EXPIRE_TS = int(os.getenv("SUB_EXPIRE_TS", "0"))
 TOKEN = os.getenv("SUB_TOKEN", "")
 UPDATE_INTERVAL = os.getenv("SUB_UPDATE_INTERVAL", "60")
 
@@ -96,10 +96,9 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         upload, download = month_usage_bytes()
-        userinfo = (
-            f"upload={upload}; download={download}; "
-            f"total={TOTAL_BYTES}; expire={EXPIRE_TS}"
-        )
+        userinfo = f"upload={upload}; download={download}; total={TOTAL_BYTES}"
+        if EXPIRE_TS > 0:
+            userinfo += f"; expire={EXPIRE_TS}"
 
         self.send_response(200)
         self.send_header("Content-Type", "text/yaml; charset=utf-8")
@@ -110,9 +109,31 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+class DualStackSubscriptionServer(ThreadingHTTPServer):
+    address_family = socket.AF_INET6
+
+    def server_bind(self):
+        self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        super().server_bind()
+
+
+def create_server():
+    try:
+        return DualStackSubscriptionServer(("::", PORT), Handler)
+    except OSError as error:
+        print(
+            f"dual-stack bind unavailable ({error}); falling back to IPv4",
+            flush=True,
+        )
+        return ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+
+
 def main():
-    httpd = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"serving on {HOST}:{PORT}, iface={IFACE}, config={CONFIG_PATH}", flush=True)
+    httpd = create_server()
+    print(
+        f"serving on {httpd.server_address}, iface={IFACE}, config={CONFIG_PATH}",
+        flush=True,
+    )
     httpd.serve_forever()
 
 

@@ -1,72 +1,10 @@
 import { SystemStatus } from '../../ipc/control';
-
-interface StatusCardProps {
-  title: string;
-  value: string;
-  percent: number;
-  subValue?: string;
-  icon: React.ReactNode;
-  color: 'blue' | 'emerald' | 'amber' | 'purple';
-}
-
-const colorMap = {
-  blue: {
-    bg: 'bg-blue-50',
-    border: 'border-blue-200',
-    iconBg: 'bg-blue-100',
-    iconColor: 'text-blue-600',
-    progress: 'bg-blue-500',
-  },
-  emerald: {
-    bg: 'bg-emerald-50',
-    border: 'border-emerald-200',
-    iconBg: 'bg-emerald-100',
-    iconColor: 'text-emerald-600',
-    progress: 'bg-emerald-500',
-  },
-  amber: {
-    bg: 'bg-amber-50',
-    border: 'border-amber-200',
-    iconBg: 'bg-amber-100',
-    iconColor: 'text-amber-600',
-    progress: 'bg-amber-500',
-  },
-  purple: {
-    bg: 'bg-purple-50',
-    border: 'border-purple-200',
-    iconBg: 'bg-purple-100',
-    iconColor: 'text-purple-600',
-    progress: 'bg-purple-500',
-  },
-};
-
-export function StatusCard({ title, value, percent, subValue, icon, color }: StatusCardProps) {
-  const colors = colorMap[color];
-
-  return (
-    <div className={`rounded-3xl border ${colors.border} ${colors.bg} p-5 shadow-sm`}>
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-950">{value}</p>
-          {subValue && <p className="mt-1 text-xs text-slate-400">{subValue}</p>}
-        </div>
-        <div className={`rounded-2xl ${colors.iconBg} p-3 ${colors.iconColor}`}>{icon}</div>
-      </div>
-      <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/60">
-        <div
-          className={`h-full rounded-full transition-all duration-500 ${colors.progress}`}
-          style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
-        />
-      </div>
-      <p className="mt-2 text-right text-xs font-medium text-slate-400">{percent.toFixed(1)}%</p>
-    </div>
-  );
-}
+import { formatBytes, formatUptime } from '../../lib';
+import { Card, Skeleton, StatCard } from '../ui';
 
 function CpuIcon() {
   return (
-    <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -78,7 +16,7 @@ function CpuIcon() {
 
 function MemoryIcon() {
   return (
-    <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -90,7 +28,7 @@ function MemoryIcon() {
 
 function DiskIcon() {
   return (
-    <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -100,14 +38,49 @@ function DiskIcon() {
   );
 }
 
-function formatUptime(seconds: number): string {
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
+function ClockIcon() {
+  return (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <circle cx="12" cy="12" r="8.25" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5V12l3 1.75" />
+    </svg>
+  );
+}
 
-  if (days > 0) return `${days} 天 ${hours} 小时`;
-  if (hours > 0) return `${hours} 小时 ${minutes} 分钟`;
-  return `${minutes} 分钟`;
+function DownloadIcon() {
+  return (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v10m0 0 4-4m-4 4-4-4M5 20h14" />
+    </svg>
+  );
+}
+
+function UploadIcon() {
+  return (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 14V4m0 0 4 4m-4-4-4 4M5 20h14" />
+    </svg>
+  );
+}
+
+const STAT_GRID = 'grid gap-4 sm:grid-cols-2 xl:grid-cols-4';
+
+function StatCardSkeleton({ withProgress = true }: { withProgress?: boolean }) {
+  return (
+    <Card padding="md" aria-hidden="true">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <Skeleton variant="line" className="w-16" />
+          <Skeleton variant="line" className="mt-2.5 h-6 w-24" />
+          <Skeleton variant="line" className="mt-2 w-32" />
+        </div>
+        <Skeleton variant="circle" className="size-5" />
+      </div>
+      {withProgress ? (
+        <Skeleton variant="block" className="mt-3 h-1.5 w-full rounded-full" />
+      ) : null}
+    </Card>
+  );
 }
 
 interface SystemStatusCardsProps {
@@ -118,16 +91,9 @@ interface SystemStatusCardsProps {
 export function SystemStatusCards({ status, loading }: SystemStatusCardsProps) {
   if (loading) {
     return (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {[...Array(3)].map((_, i) => (
-          <div
-            key={i}
-            className="animate-pulse rounded-3xl border border-slate-200 bg-slate-100 p-5 shadow-sm"
-          >
-            <div className="h-4 w-20 rounded bg-slate-300" />
-            <div className="mt-3 h-8 w-24 rounded bg-slate-300" />
-            <div className="mt-4 h-2 rounded bg-slate-300" />
-          </div>
+      <div className={STAT_GRID}>
+        {[...Array(4)].map((_, i) => (
+          <StatCardSkeleton key={i} />
         ))}
       </div>
     );
@@ -135,79 +101,87 @@ export function SystemStatusCards({ status, loading }: SystemStatusCardsProps) {
 
   if (!status) {
     return (
-      <div className="rounded-3xl border border-dashed border-slate-300 bg-white/90 p-10 text-center shadow-sm shadow-slate-200/60">
-        <p className="text-sm text-slate-500">选择 VPS 后会显示系统状态</p>
-      </div>
+      <Card
+        padding="lg"
+        className="border-dashed text-center shadow-none"
+      >
+        <p className="text-sm text-surface-500 dark:text-surface-400">
+          选择 VPS 并连接成功后，这里会显示 CPU、内存、磁盘与运行时长。
+        </p>
+      </Card>
     );
   }
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <StatusCard
-        title="CPU 使用率"
+    <div className={STAT_GRID}>
+      <StatCard
+        label="CPU 使用率"
         value={`${status.cpuPercent.toFixed(1)}%`}
-        percent={status.cpuPercent}
         icon={<CpuIcon />}
-        color="blue"
+        progress={status.cpuPercent}
       />
-      <StatusCard
-        title="内存"
+      <StatCard
+        label="内存"
         value={`${(status.memoryUsed / 1024).toFixed(1)} GB`}
         subValue={`总计 ${(status.memoryTotal / 1024).toFixed(1)} GB`}
-        percent={status.memoryTotal > 0 ? (status.memoryUsed / status.memoryTotal) * 100 : 0}
         icon={<MemoryIcon />}
-        color="emerald"
+        progress={status.memoryTotal > 0 ? (status.memoryUsed / status.memoryTotal) * 100 : 0}
       />
-      <StatusCard
-        title="磁盘"
+      <StatCard
+        label="磁盘"
         value={`${(status.diskUsed / (1024 * 1024 * 1024)).toFixed(1)} GB`}
-        subValue={`总计 ${(status.diskTotal / (1024 * 1024 * 1024)).toFixed(1)} GB · 运行 ${formatUptime(status.uptimeSeconds)}`}
-        percent={status.diskUsagePercent}
+        subValue={`总计 ${(status.diskTotal / (1024 * 1024 * 1024)).toFixed(1)} GB`}
         icon={<DiskIcon />}
-        color="amber"
+        progress={status.diskUsagePercent}
+      />
+      <StatCard
+        label="运行时长"
+        value={formatUptime(status.uptimeSeconds)}
+        subValue="自上次启动以来"
+        icon={<ClockIcon />}
       />
     </div>
   );
 }
 
-interface NetworkRateCardProps {
-  rxRateBps: number;
-  txRateBps: number;
+interface NetworkTrafficCardProps {
+  bytesReceived: number;
+  bytesSent: number;
   loading?: boolean;
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
-
-export function NetworkRateCard({ rxRateBps, txRateBps, loading }: NetworkRateCardProps) {
+export function NetworkTrafficCard({ bytesReceived, bytesSent, loading }: NetworkTrafficCardProps) {
   if (loading) {
     return (
-      <div className="rounded-3xl border border-purple-200 bg-purple-50 p-5 shadow-sm">
-        <div className="animate-pulse">
-          <div className="h-4 w-20 rounded bg-purple-200" />
-          <div className="mt-2 h-8 w-32 rounded bg-purple-200" />
-        </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <StatCardSkeleton withProgress={false} />
+        <StatCardSkeleton withProgress={false} />
       </div>
     );
   }
 
   return (
-    <div className="rounded-3xl border border-purple-200 bg-purple-50 p-5 shadow-sm">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">流量统计</p>
-      <div className="mt-3 flex gap-6">
-        <div>
-          <p className="text-xs text-slate-400">↓ 下载总量</p>
-          <p className="mt-1 text-lg font-semibold text-purple-600">{formatBytes(rxRateBps)}</p>
-        </div>
-        <div>
-          <p className="text-xs text-slate-400">↑ 上传总量</p>
-          <p className="mt-1 text-lg font-semibold text-purple-600">{formatBytes(txRateBps)}</p>
-        </div>
-      </div>
+    <div className="grid gap-4 sm:grid-cols-2">
+      <StatCard
+        label="累计下行"
+        value={formatBytes(bytesReceived)}
+        subValue="自统计起始以来接收"
+        icon={
+          <span className="text-info-500 dark:text-info-400">
+            <DownloadIcon />
+          </span>
+        }
+      />
+      <StatCard
+        label="累计上行"
+        value={formatBytes(bytesSent)}
+        subValue="自统计起始以来发送"
+        icon={
+          <span className="text-info-500 dark:text-info-400">
+            <UploadIcon />
+          </span>
+        }
+      />
     </div>
   );
 }

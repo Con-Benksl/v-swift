@@ -2,7 +2,15 @@
   "productName": "V-Swift",
   "identifier": "com.vswift.desktop",
   "app": {
-    "windows": [{ "title": "V-Swift", "width": 900, "height": 700 }]
+    "windows": [
+      {
+        "title": "V-Swift",
+        "width": 900,
+        "height": 700,
+        "minWidth": 520,
+        "minHeight": 560
+      }
+    ]
   },
   "build": {
     "beforeDevCommand": "npm run dev",

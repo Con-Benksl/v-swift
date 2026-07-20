@@ -31,7 +31,8 @@ pnpm-debug.log*
 !.env.example
 *.pem
 *.key
-!src-tauri/scripts/*
+!src-tauri/scripts/*.sh
+!src-tauri/scripts/*.py
 id_rsa*
 credentials.json
 secrets.json

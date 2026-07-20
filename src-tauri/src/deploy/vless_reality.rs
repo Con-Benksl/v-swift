@@ -9,8 +9,8 @@ use crate::scripts::{
 use crate::ssh::SshSession;
 
 use super::{
-    detect_os, parse_results, run_script, DeployParams, Deployer, NodeRecord, OsInfo,
-    ProgressSink, ProtocolId,
+    detect_os, ownership_secret_hash, parse_results, run_script, validated_sni, DeployParams,
+    Deployer, NodeRecord, OsInfo, ProgressSink, ProtocolId,
 };
 
 pub struct VlessRealityDeployer;
@@ -60,36 +60,51 @@ impl Deployer for VlessRealityDeployer {
         let os = detect_os(ssh).await?;
         self.validate_os(&os)?;
 
-        run_script(ssh, "prepare", PREPARE, "", progress).await?;
-        run_script(ssh, "install", INSTALL_XRAY, &os.arch, progress).await?;
-
-        let sni = params
-            .sni
-            .clone()
-            .unwrap_or_else(|| "www.microsoft.com".to_string());
-        let configure_args = format!("{} {}", params.port, sni);
-        let configure_output = run_script(
+        run_script(ssh, "prepare", PREPARE, &[], progress).await?;
+        let legacy_ownership_hash = params.legacy_ownership_hash.as_deref().unwrap_or("");
+        run_script(
             ssh,
-            "configure",
-            CONFIGURE_VLESS_REALITY,
-            &configure_args,
+            "install",
+            INSTALL_XRAY,
+            &[os.arch.as_str(), legacy_ownership_hash],
             progress,
         )
         .await?;
 
+        let sni = validated_sni(params.sni.as_deref(), "www.microsoft.com")?;
+        let port_arg = params.port.to_string();
         run_script(
             ssh,
             "firewall",
             SETUP_FIREWALL,
-            &format!("tcp {}", params.port),
+            &["tcp", port_arg.as_str()],
+            progress,
+        )
+        .await?;
+
+        let configure_output = run_script(
+            ssh,
+            "configure",
+            CONFIGURE_VLESS_REALITY,
+            &[port_arg.as_str(), sni.as_str()],
             progress,
         )
         .await?;
 
         let results = parse_results(&configure_output);
-        let uuid = results.get("uuid").cloned().unwrap_or_default();
-        let public_key = results.get("public_key").cloned().unwrap_or_default();
-        let short_id = results.get("short_id").cloned().unwrap_or_default();
+        let required_result = |key: &str| {
+            results
+                .get(key)
+                .filter(|value| !value.trim().is_empty())
+                .cloned()
+                .ok_or_else(|| AppError::DeployStepFailed {
+                    step: "configure".to_string(),
+                    message: format!("configure script did not return a non-empty {key}"),
+                })
+        };
+        let uuid = required_result("uuid")?;
+        let public_key = required_result("public_key")?;
+        let short_id = required_result("short_id")?;
         let flow = results
             .get("flow")
             .cloned()
@@ -122,8 +137,16 @@ impl Deployer for VlessRealityDeployer {
         })
     }
 
-    async fn uninstall(&self, ssh: &SshSession, _node: &NodeRecord) -> AppResult<()> {
-        run_script(ssh, "uninstall_xray", UNINSTALL_XRAY, "", &NoopProgress).await?;
+    async fn uninstall(&self, ssh: &SshSession, node: &NodeRecord) -> AppResult<()> {
+        let legacy_ownership_hash = ownership_secret_hash(node).unwrap_or_default();
+        run_script(
+            ssh,
+            "uninstall_xray",
+            UNINSTALL_XRAY,
+            &[legacy_ownership_hash.as_str()],
+            &NoopProgress,
+        )
+        .await?;
         Ok(())
     }
 }

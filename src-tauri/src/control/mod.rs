@@ -33,11 +33,11 @@ pub struct NetworkStats {
     pub packets_sent: u64,
 }
 
+pub mod commands;
 pub mod monitor;
 pub mod service;
 pub mod ssh_pool;
-pub mod commands;
 
+pub use commands::*;
 pub use service::ServiceStatus;
 pub use ssh_pool::SshPool;
-pub use commands::*;

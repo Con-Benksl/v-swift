@@ -9,9 +9,16 @@ export interface VpsCredential {
   auth: AuthMethod;
 }
 
+export interface ExpectedHostKey {
+  algorithm: string;
+  fingerprint: string;
+}
+
 export interface ConnectionTarget {
   vpsProfileId?: string;
   credential?: VpsCredential;
+  acceptNewHostKey?: boolean;
+  expectedHostKey?: ExpectedHostKey;
 }
 
 export interface OsInfo {
@@ -53,6 +60,10 @@ export interface SubscriptionResult {
   qrSvg: string;
   managedUri?: string;
   managedQrSvg?: string;
+}
+
+export interface UninstallOutcome {
+  warnings: string[];
 }
 
 export interface VpsProfileSummary {

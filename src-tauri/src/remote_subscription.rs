@@ -1,50 +1,27 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::deploy::{parse_results, run_script, NodeRecord, ProgressSink, ProtocolId};
 use crate::error::{AppError, AppResult};
-use crate::scripts::{SETUP_FIREWALL, SETUP_SUBSCRIPTION_SERVICE, SUBSCRIPTION_SERVER_PY};
+use crate::scripts::{
+    ACTIVATE_SUBSCRIPTION_SERVICE, CLEANUP_SUBSCRIPTION_STAGING, REMOVE_SUBSCRIPTION_SERVICE,
+    SETUP_FIREWALL, SETUP_SUBSCRIPTION_SERVICE, SUBSCRIPTION_SERVER_PY,
+};
 use crate::ssh::SshSession;
 
 const MANAGED_SUBSCRIPTION_KEY: &str = "managed_subscription";
 const DEFAULT_SUBSCRIPTION_PORT: u16 = 18080;
 const CONFIG_PATH: &str = "/opt/vps-subscription/config.yaml";
 const SERVER_PATH: &str = "/opt/vps-subscription/subscription_server.py";
-const SERVICE_PATH: &str = "/etc/systemd/system/vps-subscription.service";
+const RUNTIME_ENV_PATH: &str = "/opt/vps-subscription/runtime.env";
 const TOTAL_BYTES: u64 = 3_000_000_000_000;
-const EXPIRE_TS: u64 = 1_779_638_400;
-
-const ACTIVATE_SUBSCRIPTION_SERVICE: &str = r#"#!/usr/bin/env bash
-set -euo pipefail
-
-PORT="${1:-18080}"
-
-systemctl daemon-reload
-systemctl enable --now vps-subscription
-systemctl restart vps-subscription
-sleep 1
-
-if ! systemctl is-active --quiet vps-subscription; then
-  echo "::error:: subscription_service_not_active" >&2
-  systemctl status vps-subscription --no-pager -l >&2 || true
-  journalctl -u vps-subscription -n 50 --no-pager >&2 || true
-  exit 1
-fi
-
-curl -fsS "http://127.0.0.1:${PORT}/health" >/dev/null
-echo "远程订阅服务已启动并通过本机健康检查。"
-"#;
-
-const REMOVE_SUBSCRIPTION_SERVICE: &str = r#"#!/usr/bin/env bash
-set -euo pipefail
-
-systemctl disable --now vps-subscription 2>/dev/null || true
-rm -f /etc/systemd/system/vps-subscription.service
-rm -rf /opt/vps-subscription
-systemctl daemon-reload 2>/dev/null || true
-echo "远程订阅服务已移除。"
-"#;
+const LEGACY_SERVER_HASHES: &[&str] =
+    &["31e754ac04b13226dc97b87b2f561e70f2a213aefcf535cfa4cc7e2cce94fe14"];
+// 0 表示不声明固定到期日；避免新订阅因硬编码历史时间立即显示已过期。
+const EXPIRE_TS: u64 = 0;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ManagedSubscription {
@@ -62,11 +39,29 @@ pub async fn install_for_nodes(
 ) -> AppResult<ManagedSubscription> {
     progress.step("subscription", "managed subscription");
 
+    // Finish every fallible local validation before setup mutates the remote host.
+    let config = build_mihomo_config(nodes)?;
+    let token = managed_token_for_nodes(nodes)?.unwrap_or_else(new_token);
+    let managed = ManagedSubscription {
+        url: build_url(host, DEFAULT_SUBSCRIPTION_PORT, &token),
+        port: DEFAULT_SUBSCRIPTION_PORT,
+        token,
+        updated_at: unix_now(),
+    };
+    let service = build_systemd_service();
+    let stage_id = uuid::Uuid::new_v4().simple().to_string();
+    let server_stage = format!("/opt/vps-subscription/.v-swift-{stage_id}-server.tmp");
+    let config_stage = format!("/opt/vps-subscription/.v-swift-{stage_id}-config.tmp");
+    let env_stage = format!("/opt/vps-subscription/.v-swift-{stage_id}-env.tmp");
+    let service_stage = format!("/opt/vps-subscription/.v-swift-{stage_id}-service.tmp");
+    let legacy_token_hash = sha256_hex(managed.token.as_bytes());
+    let expected_server_hashes = allowed_server_hashes();
+
     let setup_output = run_script(
         ssh,
         "subscription_setup",
         SETUP_SUBSCRIPTION_SERVICE,
-        "",
+        &[legacy_token_hash.as_str(), expected_server_hashes.as_str()],
         progress,
     )
     .await?;
@@ -76,61 +71,146 @@ pub async fn install_for_nodes(
         .map(String::as_str)
         .filter(|value| !value.trim().is_empty())
         .unwrap_or("eth0");
+    let runtime_env = build_runtime_env(iface, &managed);
+    let upload_result = async {
+        ssh.upload(&server_stage, SUBSCRIPTION_SERVER_PY.as_bytes(), 0o600)
+            .await?;
+        ssh.upload(&config_stage, config.as_bytes(), 0o600).await?;
+        ssh.upload(&env_stage, runtime_env.as_bytes(), 0o600)
+            .await?;
+        ssh.upload(&service_stage, service.as_bytes(), 0o600)
+            .await?;
+        AppResult::Ok(())
+    }
+    .await;
+    if let Err(err) = upload_result {
+        cleanup_staging(ssh, &stage_id, progress).await;
+        return Err(err);
+    }
 
-    let token = nodes
-        .iter()
-        .find_map(extract_managed_subscription)
-        .map(|managed| managed.token)
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(new_token);
-    let managed = ManagedSubscription {
-        url: build_url(host, DEFAULT_SUBSCRIPTION_PORT, &token),
-        port: DEFAULT_SUBSCRIPTION_PORT,
-        token,
-        updated_at: unix_now(),
-    };
-
-    let config = build_mihomo_config(nodes)?;
-    ssh.upload(SERVER_PATH, SUBSCRIPTION_SERVER_PY.as_bytes(), 0o755)
-        .await?;
-    ssh.upload(CONFIG_PATH, config.as_bytes(), 0o644).await?;
-    ssh.upload(
-        SERVICE_PATH,
-        build_systemd_service(iface, &managed).as_bytes(),
-        0o644,
-    )
-    .await?;
-
-    run_script(
-        ssh,
-        "subscription_activate",
-        ACTIVATE_SUBSCRIPTION_SERVICE,
-        &managed.port.to_string(),
-        progress,
-    )
-    .await?;
-    run_script(
+    let port_arg = managed.port.to_string();
+    let firewall_result = run_script(
         ssh,
         "subscription_firewall",
         SETUP_FIREWALL,
-        &format!("tcp {}", managed.port),
+        &["tcp", port_arg.as_str()],
         progress,
     )
-    .await?;
+    .await;
+    if let Err(err) = firewall_result {
+        cleanup_staging(ssh, &stage_id, progress).await;
+        return Err(err);
+    }
+
+    let activate_result = run_script(
+        ssh,
+        "subscription_activate",
+        ACTIVATE_SUBSCRIPTION_SERVICE,
+        &[
+            stage_id.as_str(),
+            port_arg.as_str(),
+            legacy_token_hash.as_str(),
+            expected_server_hashes.as_str(),
+        ],
+        progress,
+    )
+    .await;
+    if let Err(err) = activate_result {
+        cleanup_staging(ssh, &stage_id, progress).await;
+        return Err(err);
+    }
 
     Ok(managed)
 }
 
-pub async fn remove_from_vps(ssh: &SshSession, progress: &dyn ProgressSink) -> AppResult<()> {
+pub async fn remove_from_vps(
+    ssh: &SshSession,
+    legacy_token: Option<&str>,
+    progress: &dyn ProgressSink,
+) -> AppResult<()> {
+    let legacy_token_hash = legacy_token
+        .filter(|token| valid_managed_token(token))
+        .map(|token| sha256_hex(token.as_bytes()))
+        .unwrap_or_default();
+    let expected_server_hashes = allowed_server_hashes();
     run_script(
         ssh,
         "subscription_remove",
         REMOVE_SUBSCRIPTION_SERVICE,
-        "",
+        &[legacy_token_hash.as_str(), expected_server_hashes.as_str()],
         progress,
     )
     .await?;
     Ok(())
+}
+
+async fn cleanup_staging(ssh: &SshSession, stage_id: &str, progress: &dyn ProgressSink) {
+    if let Err(err) = run_script(
+        ssh,
+        "subscription_staging_cleanup",
+        CLEANUP_SUBSCRIPTION_STAGING,
+        &[stage_id],
+        progress,
+    )
+    .await
+    {
+        progress.log(&format!(
+            "订阅临时文件清理失败，请检查 stage {stage_id}：{err}"
+        ));
+    }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+fn allowed_server_hashes() -> String {
+    std::iter::once(sha256_hex(SUBSCRIPTION_SERVER_PY.as_bytes()))
+        .chain(
+            LEGACY_SERVER_HASHES
+                .iter()
+                .map(|value| (*value).to_string()),
+        )
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn managed_token_for_nodes(nodes: &[NodeRecord]) -> AppResult<Option<String>> {
+    let mut tokens = HashSet::new();
+
+    for node in nodes {
+        let Some(value) = node.protocol_params.get(MANAGED_SUBSCRIPTION_KEY) else {
+            continue;
+        };
+        let managed: ManagedSubscription = serde_json::from_value(value.clone()).map_err(|_| {
+            AppError::Other(format!(
+                "节点 {} 的托管订阅元数据已损坏，已在修改远端服务前中止。",
+                node.id
+            ))
+        })?;
+        if !valid_managed_token(&managed.token) {
+            return Err(AppError::Other(format!(
+                "节点 {} 的托管订阅令牌格式无效，已在修改远端服务前中止。",
+                node.id
+            )));
+        }
+        tokens.insert(managed.token);
+    }
+
+    if tokens.len() > 1 {
+        return Err(AppError::Other(
+            "同一 VPS 的节点保存了互相冲突的托管订阅令牌，已拒绝静默覆盖远端服务。".to_string(),
+        ));
+    }
+
+    Ok(tokens.into_iter().next())
+}
+
+fn valid_managed_token(token: &str) -> bool {
+    token.len() == 32
+        && token
+            .bytes()
+            .all(|value| matches!(value, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 pub fn build_mihomo_config(nodes: &[NodeRecord]) -> AppResult<String> {
@@ -179,12 +259,7 @@ pub fn apply_managed_subscription(node: &mut NodeRecord, managed: &ManagedSubscr
 }
 
 pub fn extract_managed_subscription(node: &NodeRecord) -> Option<ManagedSubscription> {
-    serde_json::from_value(
-        node.protocol_params
-            .get(MANAGED_SUBSCRIPTION_KEY)?
-            .clone(),
-    )
-    .ok()
+    serde_json::from_value(node.protocol_params.get(MANAGED_SUBSCRIPTION_KEY)?.clone()).ok()
 }
 
 fn append_vless_proxy(output: &mut String, node: &NodeRecord, name: &str) -> AppResult<()> {
@@ -323,7 +398,7 @@ fn yaml_quote(value: &str) -> String {
     format!("\"{escaped}\"")
 }
 
-fn build_systemd_service(iface: &str, managed: &ManagedSubscription) -> String {
+fn build_systemd_service() -> String {
     format!(
         r#"[Unit]
 Description=V-Swift managed Clash/Mihomo subscription
@@ -332,13 +407,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-Environment=SUB_HOST=0.0.0.0
-Environment=SUB_PORT={port}
-Environment=SUB_IFACE={iface}
-Environment=SUB_CONFIG_PATH={config_path}
-Environment=SUB_TOTAL_BYTES={total_bytes}
-Environment=SUB_EXPIRE_TS={expire_ts}
-Environment=SUB_TOKEN={token}
+EnvironmentFile={runtime_env_path}
 ExecStart=/usr/bin/python3 {server_path}
 Restart=always
 RestartSec=3
@@ -347,13 +416,22 @@ User=root
 [Install]
 WantedBy=multi-user.target
 "#,
-        port = managed.port,
-        iface = systemd_env_value(iface),
-        config_path = CONFIG_PATH,
-        total_bytes = TOTAL_BYTES,
-        expire_ts = EXPIRE_TS,
-        token = managed.token,
+        runtime_env_path = RUNTIME_ENV_PATH,
         server_path = SERVER_PATH
+    )
+}
+
+fn build_runtime_env(iface: &str, managed: &ManagedSubscription) -> String {
+    // Prefer one dual-stack listener even when the public address is an AAAA-only hostname.
+    // The Python service falls back to IPv4 if the host kernel has IPv6 disabled.
+    format!(
+        "SUB_PORT={}\nSUB_IFACE={}\nSUB_CONFIG_PATH={}\nSUB_TOTAL_BYTES={}\nSUB_EXPIRE_TS={}\nSUB_TOKEN={}\n",
+        managed.port,
+        systemd_env_value(iface),
+        CONFIG_PATH,
+        TOTAL_BYTES,
+        EXPIRE_TS,
+        managed.token
     )
 }
 
@@ -473,5 +551,55 @@ mod tests {
         assert_eq!(extracted.port, 18080);
         assert_eq!(extracted.token, "test-token");
         assert_eq!(extracted.updated_at, 1_700_000_020_000);
+    }
+
+    #[test]
+    fn managed_subscription_tokens_must_be_valid_and_consistent() {
+        let mut first = vless_node();
+        let mut second = hysteria_node();
+        let first_managed = super::ManagedSubscription {
+            url: "http://example.test/sub?token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+            port: 18080,
+            token: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+            updated_at: 1,
+        };
+        let second_managed = super::ManagedSubscription {
+            url: "http://example.test/sub?token=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
+            port: 18080,
+            token: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
+            updated_at: 2,
+        };
+        super::apply_managed_subscription(&mut first, &first_managed);
+        super::apply_managed_subscription(&mut second, &second_managed);
+
+        assert!(super::managed_token_for_nodes(&[first.clone()]).is_ok());
+        let conflict = super::managed_token_for_nodes(&[first, second])
+            .expect_err("conflicting tokens must fail before remote mutation");
+        assert!(conflict.to_string().contains("互相冲突"));
+
+        let mut invalid = vless_node();
+        let mut invalid_managed = first_managed;
+        invalid_managed.token = "bad\nEnvironment=INJECTED=1".to_string();
+        super::apply_managed_subscription(&mut invalid, &invalid_managed);
+        let invalid_error = super::managed_token_for_nodes(&[invalid])
+            .expect_err("invalid persisted token must fail closed");
+        assert!(invalid_error.to_string().contains("格式无效"));
+    }
+
+    #[test]
+    fn systemd_unit_keeps_token_in_private_environment_file() {
+        let managed = super::ManagedSubscription {
+            url: "http://example.test/sub?token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+            port: 18080,
+            token: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+            updated_at: 1,
+        };
+        let unit = super::build_systemd_service();
+        let runtime_env = super::build_runtime_env("eth0;injected", &managed);
+
+        assert!(unit.contains("EnvironmentFile=/opt/vps-subscription/runtime.env"));
+        assert!(!unit.contains("SUB_TOKEN="));
+        assert!(runtime_env.contains("SUB_IFACE=eth0injected\n"));
+        assert!(runtime_env.contains("SUB_TOKEN=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"));
     }
 }

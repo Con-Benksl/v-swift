@@ -11,6 +11,8 @@ pub enum AppError {
     SshHostKey(String),
     #[error("host unreachable: {0}")]
     HostUnreachable(String),
+    #[error("ssh transport error: {0}")]
+    SshTransport(String),
     #[error("permission denied")]
     PermissionDenied,
     #[error("unsupported os: {0}")]

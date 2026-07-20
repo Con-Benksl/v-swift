@@ -1,3 +1,161 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ============================================================
+ * V-Swift 设计基座
+ * 视觉约定（低饱和暖灰基底 · 高信息密度 · class 策略暗色模式）：
+ *  - 页面背景只允许出现在 body 与 .app-shell 两处，其余一律透明
+ *  - 暗色约定：页面底 dark:surface-900 / 卡片 dark:surface-800 / 描边 dark:surface-700
+ *  - 正文 surface-800(dark:surface-100)，次要文字 surface-500(dark:surface-400)
+ * ========================================================== */
+
+@layer base {
+  html {
+    /* 跟随 color-scheme，避免暗色下原生控件/滚动条突兀 */
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    /* 兜底底色与挂载前一致，防止白闪；中文字体优先栈 + 抗锯齿 */
+    @apply bg-surface font-sans text-surface-800 antialiased;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .dark body {
+    @apply bg-surface-900 text-surface-100;
+  }
+
+  ::selection {
+    @apply bg-brand-100 text-brand-900;
+  }
+
+  .dark ::selection {
+    @apply bg-brand-800 text-brand-50;
+  }
+
+  /* 全局焦点环：品牌色细环，键盘流可见 */
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-500 ring-offset-1 ring-offset-surface;
+  }
+
+  .dark :focus-visible {
+    @apply ring-brand-400 ring-offset-surface-900;
+  }
+
+  /* ---- 自定义细滚动条（webkit + Firefox，hover 显色，dark 适配） ---- */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(168 162 158 / 0.45) transparent; /* surface-400 @ 45% */
+  }
+
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background-color: rgb(168 162 158 / 0.35); /* surface-400 @ 35%，静置隐约可见 */
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(120 113 108 / 0.75); /* surface-500 @ 75%，hover 显色 */
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  .dark * {
+    scrollbar-color: rgb(87 83 78 / 0.6) transparent; /* surface-600 @ 60% */
+  }
+
+  .dark *::-webkit-scrollbar-thumb {
+    background-color: rgb(87 83 78 / 0.55);
+  }
+
+  .dark *::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(120 113 108 / 0.8); /* surface-500 @ 80% */
+  }
+}
+
+@layer components {
+  /* 唯一页面背景定义处：暖灰纯色，无渐变无纹理 */
+  .app-shell {
+    @apply min-h-screen bg-surface text-surface-800 dark:bg-surface-900 dark:text-surface-100;
+  }
+
+  /* ---- 按钮（供 components/ui/Button 包装，也可直接使用） ---- */
+  .btn {
+    @apply inline-flex h-9 select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-control px-3.5 text-sm font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply btn bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-700 dark:bg-brand-600 dark:hover:bg-brand-500;
+  }
+
+  .btn-secondary {
+    @apply btn border border-surface-border bg-surface-card text-surface-700 shadow-card hover:bg-surface-100 active:bg-surface-200 dark:border-surface-700 dark:bg-surface-800 dark:text-surface-200 dark:hover:bg-surface-700;
+  }
+
+  .btn-danger {
+    @apply btn bg-danger-600 text-white hover:bg-danger-700 active:bg-danger-700 dark:bg-danger-600 dark:hover:bg-danger-500;
+  }
+
+  .btn-ghost {
+    @apply btn text-surface-600 hover:bg-surface-100 hover:text-surface-800 active:bg-surface-200 dark:text-surface-400 dark:hover:bg-surface-800 dark:hover:text-surface-100;
+  }
+
+  /* ---- 徽章：浅底 + 深色字；.badge-neutral 为默认中性态 ---- */
+  .badge {
+    @apply inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium;
+  }
+
+  .badge-neutral {
+    @apply badge bg-surface-100 text-surface-600 dark:bg-surface-800 dark:text-surface-300;
+  }
+
+  .badge-success {
+    @apply badge bg-success-50 text-success-700 dark:bg-success-700/20 dark:text-success-300;
+  }
+
+  .badge-warning {
+    @apply badge bg-warning-50 text-warning-700 dark:bg-warning-700/20 dark:text-warning-300;
+  }
+
+  .badge-danger {
+    @apply badge bg-danger-50 text-danger-700 dark:bg-danger-700/20 dark:text-danger-300;
+  }
+
+  .badge-info {
+    @apply badge bg-info-50 text-info-700 dark:bg-info-700/20 dark:text-info-300;
+  }
+
+  /* ---- 提示条：左侧描边 + 浅底，三档语义 ---- */
+  .callout {
+    @apply rounded-control border px-3.5 py-3 text-sm leading-relaxed;
+  }
+
+  .callout-info {
+    @apply callout border-info-200 bg-info-50 text-info-700 dark:border-info-700/40 dark:bg-info-700/15 dark:text-info-200;
+  }
+
+  .callout-warning {
+    @apply callout border-warning-200 bg-warning-50 text-warning-700 dark:border-warning-700/40 dark:bg-warning-700/15 dark:text-warning-200;
+  }
+
+  .callout-danger {
+    @apply callout border-danger-200 bg-danger-50 text-danger-700 dark:border-danger-700/40 dark:bg-danger-700/15 dark:text-danger-200;
+  }
+}
