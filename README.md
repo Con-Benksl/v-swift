@@ -203,7 +203,7 @@ When deployment succeeds but connectivity fails, inspect the port number, TCP/UD
 
 Prerequisites:
 
-- Node.js 20 or newer
+- Node.js 22 or newer
 - Rust stable toolchain
 - Tauri 2 system dependencies for your platform
 

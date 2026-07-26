@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import ConnectForm, { ConnectFormValue } from '../components/ConnectForm';
 import DeployProgress from '../components/DeployProgress';
 import ProtocolPicker, { ProtocolPickerValue } from '../components/ProtocolPicker';

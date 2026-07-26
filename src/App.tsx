@@ -1,6 +1,6 @@
 import { useEffect, useState, type MouseEvent } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { HashRouter, Navigate, NavLink, Route, Routes } from 'react-router-dom';
+import { HashRouter, Navigate, NavLink, Route, Routes } from 'react-router';
 import ControlPanel from './pages/ControlPanel';
 import NodeDetail from './pages/NodeDetail';
 import NewNodeWizard from './pages/NewNodeWizard';
