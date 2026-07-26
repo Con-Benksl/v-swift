@@ -214,6 +214,14 @@ npm install
 npm run tauri:dev
 ```
 
+For frontend-only work you can skip Tauri and run it in a browser:
+
+```bash
+npm run dev
+```
+
+Backend calls then resolve against the fixtures in `src/ipc/devMock.ts`, so every page and the whole deployment flow stay reachable. That mock layer is only active in development outside Tauri and never reaches a production build.
+
 Build a production bundle:
 
 ```bash
@@ -221,6 +229,16 @@ npm run tauri:build
 ```
 
 Build outputs are written under `src-tauri/target/release/bundle/`.
+
+Before committing, make sure these pass — CI runs the same commands:
+
+```bash
+npm run build
+```
+
+```bash
+cd src-tauri && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test
+```
 
 ### Release And Updater
 
@@ -230,9 +248,10 @@ Release flow:
 
 | Step | Action |
 | --- | --- |
-| 1 | Bump the version in both `package.json` and `src-tauri/Cargo.toml` |
-| 2 | Create and push a tag such as `v0.2.2` |
-| 3 | Wait for GitHub Actions to build installers, updater archives, signatures, and `latest.json` |
+| 1 | Bump the version in `package.json` and `src-tauri/Cargo.toml`, then refresh both lockfiles (`npm install --package-lock-only` and `cargo check`) |
+| 2 | Add a `CHANGELOG.md` entry for the release |
+| 3 | Create and push a tag such as `v0.4.0` |
+| 4 | Wait for GitHub Actions to build installers, updater archives, signatures, and `latest.json` |
 
 Required repository secrets:
 

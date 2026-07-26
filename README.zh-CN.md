@@ -216,6 +216,14 @@ npm install
 npm run tauri:dev
 ```
 
+只调前端时，也可以不开 Tauri，直接在浏览器里跑：
+
+```bash
+npm run dev
+```
+
+此时后端调用会走 `src/ipc/devMock.ts` 里的假数据，全部页面与部署流程都能走通。这层 mock 只在开发模式且非 Tauri 环境下启用，不会进入生产构建。
+
 构建发行包：
 
 ```bash
@@ -223,6 +231,16 @@ npm run tauri:build
 ```
 
 构建产物位于 `src-tauri/target/release/bundle/`。
+
+提交前请确保以下检查通过（CI 会跑同样的命令）：
+
+```bash
+npm run build
+```
+
+```bash
+cd src-tauri && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test
+```
 
 ### 发布与自动更新
 
@@ -232,9 +250,10 @@ V-Swift 使用 Tauri 官方 updater 插件从 GitHub Releases 检查更新。应
 
 | 步骤 | 操作 |
 | --- | --- |
-| 1 | 同步提升 `package.json` 和 `src-tauri/Cargo.toml` 中的版本号 |
-| 2 | 创建并推送形如 `v0.2.2` 的 Git tag |
-| 3 | 等待 GitHub Actions 构建安装包、updater archive、签名文件和 `latest.json` |
+| 1 | 同步提升 `package.json` 和 `src-tauri/Cargo.toml` 的版本号，并刷新两个 lockfile（`npm install --package-lock-only` 与 `cargo check`）|
+| 2 | 在 `CHANGELOG.md` 补上本次发布的条目 |
+| 3 | 创建并推送形如 `v0.4.0` 的 Git tag |
+| 4 | 等待 GitHub Actions 构建安装包、updater archive、签名文件和 `latest.json` |
 
 仓库需要配置这些 GitHub Secrets：
 
