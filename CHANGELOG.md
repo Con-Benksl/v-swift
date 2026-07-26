@@ -2,6 +2,14 @@
 
 本项目的所有重要变更都会记录在这里。版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.4.1] - 2026-07-26
+
+### 安全
+
+- 升级 react-router-dom 6.30.4 → 7.18.1。6.x 分支存在两个不会再修复的公告（GHSA-wrjc-x8rr-h8h6 开放重定向、GHSA-337j-9hxr-rhxg 反序列化注入），修复只落在 7.18.0。本应用是纯客户端 HashRouter，无需任何源码改动，升级前后对导航行为做过逐项基线对照。
+- 升级 postcss 至 8.5.23，清除两个构建期 sourceMappingURL 相关公告（GHSA-6g55-p6wh-862q、GHSA-r28c-9q8g-f849）。构建产物逐字节一致。
+- 已知并接受：react-router 7.x 上遗留一条 RSC CSRF 公告（GHSA-qwww-vcr4-c8h2），官方修复仅存在于依赖 React 19 的 8.3.0。该公告明确只影响使用 unstable RSC API 的应用，本应用无服务端、无 SSR、无 RSC，代码路径不可达。
+
 ## [0.4.0] - 2026-07-26
 
 ### 修复
@@ -55,6 +63,7 @@
 
 - 首个版本：通过 SSH 部署 VLESS-Reality 与 Hysteria2 节点并生成订阅信息。
 
+[0.4.1]: https://github.com/Con-Benksl/v-swift/releases/tag/v0.4.1
 [0.4.0]: https://github.com/Con-Benksl/v-swift/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Con-Benksl/v-swift/releases/tag/v0.3.0
 [0.2.4]: https://github.com/Con-Benksl/v-swift/releases/tag/v0.2.4

@@ -205,7 +205,7 @@ V-Swift 可以配置 Linux 系统内部的基础防火墙规则，但云厂商�
 
 环境要求：
 
-- Node.js 18 或更高版本
+- Node.js 20 或更高版本
 - Rust stable 工具链
 - 当前平台所需的 Tauri 2 系统依赖
 
