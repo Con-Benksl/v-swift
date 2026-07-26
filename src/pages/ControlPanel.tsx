@@ -43,14 +43,14 @@ const REFRESH_INTERVAL = 30_000;
 function ConnectionStatusBadge({ status }: { status: ConnectionStatus }) {
   if (status.status === 'connected') {
     return (
-      <Badge variant="success" dot>
+      <Badge variant="success" dot pulse>
         已连接
       </Badge>
     );
   }
   if (status.status === 'connecting') {
     return (
-      <Badge variant="warning" dot>
+      <Badge variant="warning" dot pulse>
         连接中…
       </Badge>
     );
@@ -92,6 +92,8 @@ export default function ControlPanel() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [pendingStop, setPendingStop] = useState<{ vpsId: string; protocol: string } | null>(null);
   const [error, setError] = useState('');
+  /** 停止服务失败的信息渲染在弹窗内：页面级 Callout 会被遮罩盖住，用户看不到失败原因。 */
+  const [stopError, setStopError] = useState('');
   const connectRequestIdRef = useRef(0);
   const statusRequestIdRef = useRef(0);
   const serviceRequestIdRef = useRef(0);
@@ -339,7 +341,7 @@ export default function ControlPanel() {
       setServices(svc);
     } catch (err) {
       if (isCurrentRequest()) {
-        setServices([]);
+        // 保留上一次的服务列表：一次瞬时刷新失败不应让整块服务与日志协议切换器消失。
         setError(extractIpcErrorMessage(err, '加载服务状态失败'));
       }
     } finally {
@@ -408,6 +410,8 @@ export default function ControlPanel() {
     action: 'restart' | 'start' | 'stop',
     protocol: string,
     targetVpsId: string | null = selectedVpsId,
+    /** 失败信息的额外去处（停止服务时用于在弹窗内就地展示） */
+    onFailure?: (message: string) => void,
   ): Promise<boolean> => {
     if (!targetVpsId || actionInFlightRef.current) return false;
 
@@ -434,7 +438,9 @@ export default function ControlPanel() {
       return isCurrentAction();
     } catch (err) {
       if (isCurrentAction() && selectedVpsIdRef.current === targetVpsId) {
-        setError(extractIpcErrorMessage(err, '操作失败'));
+        const message = extractIpcErrorMessage(err, '操作失败');
+        setError(message);
+        onFailure?.(message);
       }
       return false;
     } finally {
@@ -455,6 +461,7 @@ export default function ControlPanel() {
   const requestStopService = (protocol: string) => {
     const vpsId = selectedVpsIdRef.current;
     if (vpsId) {
+      setStopError('');
       setPendingStop({ vpsId, protocol });
     }
   };
@@ -464,17 +471,20 @@ export default function ControlPanel() {
       return;
     }
     setPendingStop(null);
+    setStopError('');
   };
 
   const confirmStopService = async () => {
     const target = pendingStop;
     if (!target) return;
 
-    const stopped = await handleServiceAction('stop', target.protocol, target.vpsId);
+    setStopError('');
+    const stopped = await handleServiceAction('stop', target.protocol, target.vpsId, setStopError);
     if (stopped) {
       setPendingStop((current) =>
         current?.vpsId === target.vpsId && current.protocol === target.protocol ? null : current,
       );
+      setStopError('');
     }
   };
 
@@ -529,7 +539,7 @@ export default function ControlPanel() {
 
       {!loadingProfiles && !hasProfiles ? (
         <Card padding="lg" className="mt-6 text-center">
-          <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-brand-50 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300">
+          <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-b from-brand-50 to-brand-100 text-brand-600 ring-1 ring-inset ring-brand-200/70 dark:from-brand-900/50 dark:to-brand-800/40 dark:text-brand-300 dark:ring-brand-500/20">
             <svg
               className="h-5 w-5"
               fill="none"
@@ -655,6 +665,11 @@ export default function ControlPanel() {
             将停止 VPS「{pendingStopVpsName}」上的 {protocolLabel(pendingStop.protocol)} 服务。
             此操作不会卸载节点，但会中断当前连接，之后可从服务列表重新启动。
           </p>
+        ) : null}
+        {stopError ? (
+          <Callout variant="danger" title="停止失败" className="mt-3">
+            {stopError}
+          </Callout>
         ) : null}
       </Modal>
     </PageShell>

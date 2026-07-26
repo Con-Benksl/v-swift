@@ -25,6 +25,13 @@ export interface StatCardProps {
  * 用法（监控）：`<StatCard label="CPU 占用" value="42%" icon={<CpuIcon />} progress={42} />`
  * 用法（详情）：`<StatCard label="累计下行" value="1.2 GB" subValue="本月" />`
  */
+/* 占用率语义换挡：<75% 常规 brand，75–90% warning，>90% danger（数值仍由调用方格式化） */
+function progressBarClass(progress: number): string {
+  if (progress > 90) return 'bg-danger-500 dark:bg-danger-400';
+  if (progress > 75) return 'bg-warning-500 dark:bg-warning-400';
+  return 'bg-brand-600 dark:bg-brand-500';
+}
+
 export function StatCard({ label, value, subValue, icon, progress, className = '' }: StatCardProps) {
   const clampedProgress =
     progress === undefined ? undefined : Math.min(100, Math.max(0, progress));
@@ -34,17 +41,20 @@ export function StatCard({ label, value, subValue, icon, progress, className = '
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-medium text-surface-500 dark:text-surface-400">{label}</p>
-          <p className="mt-1.5 truncate text-xl font-semibold leading-tight text-surface-800 dark:text-surface-100">
+          <p className="mt-1.5 truncate text-xl font-semibold leading-tight tracking-tight text-surface-900 tabular-nums dark:text-surface-50">
             {value}
           </p>
           {subValue !== undefined && subValue !== null ? (
-            <p className="mt-1 text-xs leading-relaxed text-surface-500 dark:text-surface-400">
+            <p className="mt-1 text-xs leading-relaxed text-surface-500 tabular-nums dark:text-surface-400">
               {subValue}
             </p>
           ) : null}
         </div>
         {icon ? (
-          <div className="shrink-0 text-surface-500 dark:text-surface-400" aria-hidden="true">
+          <div
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-surface-100 text-surface-500 dark:bg-surface-700/60 dark:text-surface-300"
+            aria-hidden="true"
+          >
             {icon}
           </div>
         ) : null}
@@ -59,7 +69,7 @@ export function StatCard({ label, value, subValue, icon, progress, className = '
           aria-label={`${label} ${Math.round(clampedProgress)}%`}
         >
           <div
-            className="h-full rounded-full bg-brand-600 transition-[width] duration-300 dark:bg-brand-500"
+            className={`h-full rounded-full transition-[width] duration-500 ease-out ${progressBarClass(clampedProgress)}`}
             style={{ width: `${clampedProgress}%` }}
           />
         </div>

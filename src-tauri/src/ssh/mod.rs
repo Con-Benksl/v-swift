@@ -316,16 +316,16 @@ impl SshSession {
             .map_err(map_russh_error)?;
         channel.exec(true, cmd).await.map_err(map_russh_error)?;
 
-        let mut stdout = String::new();
-        let mut stderr = String::new();
+        // Accumulate raw bytes and decode once at the end: a multi-byte UTF-8 character
+        // split across two SSH packets would be mangled by per-chunk lossy decoding.
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
         let mut exit_code = None;
 
         while let Some(message) = channel.wait().await {
             match message {
-                ChannelMsg::Data { data } => stdout.push_str(&String::from_utf8_lossy(&data)),
-                ChannelMsg::ExtendedData { data, .. } => {
-                    stderr.push_str(&String::from_utf8_lossy(&data))
-                }
+                ChannelMsg::Data { data } => stdout.extend_from_slice(&data),
+                ChannelMsg::ExtendedData { data, .. } => stderr.extend_from_slice(&data),
                 ChannelMsg::ExitStatus { exit_status } => exit_code = Some(exit_status as i32),
                 ChannelMsg::Eof | ChannelMsg::Close => break,
                 _ => {}
@@ -333,8 +333,8 @@ impl SshSession {
         }
 
         Ok(ExecOutput {
-            stdout,
-            stderr,
+            stdout: String::from_utf8_lossy(&stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&stderr).into_owned(),
             exit_code: require_exit_status(exit_code)?,
         })
     }
@@ -351,18 +351,20 @@ impl SshSession {
             .map_err(map_russh_error)?;
         channel.exec(true, cmd).await.map_err(map_russh_error)?;
 
-        let mut stdout_buffer = String::new();
-        let mut stderr_buffer = String::new();
+        // Buffer bytes rather than eagerly decoded strings: decoding happens per complete
+        // line, so a multi-byte character straddling two packets stays intact.
+        let mut stdout_buffer = Vec::new();
+        let mut stderr_buffer = Vec::new();
         let mut exit_code = None;
 
         while let Some(message) = channel.wait().await {
             match message {
                 ChannelMsg::Data { data } => {
-                    stdout_buffer.push_str(&String::from_utf8_lossy(&data));
+                    stdout_buffer.extend_from_slice(&data);
                     flush_complete_lines(&mut stdout_buffer, "", &on_line);
                 }
                 ChannelMsg::ExtendedData { data, .. } => {
-                    stderr_buffer.push_str(&String::from_utf8_lossy(&data));
+                    stderr_buffer.extend_from_slice(&data);
                     flush_complete_lines(&mut stderr_buffer, "[stderr] ", &on_line);
                 }
                 ChannelMsg::ExitStatus { exit_status } => exit_code = Some(exit_status as i32),
@@ -524,19 +526,27 @@ pub(crate) fn socket_address(host: &str, port: u16) -> String {
     }
 }
 
-fn flush_complete_lines<F: Fn(&str) + Send + Sync>(buffer: &mut String, prefix: &str, on_line: &F) {
-    while let Some(idx) = buffer.find('\n') {
-        let line = buffer[..idx].trim_end_matches('\r');
-        let rendered = format!("{prefix}{line}");
+fn flush_complete_lines<F: Fn(&str) + Send + Sync>(
+    buffer: &mut Vec<u8>,
+    prefix: &str,
+    on_line: &F,
+) {
+    while let Some(idx) = buffer.iter().position(|byte| *byte == b'\n') {
+        let line = String::from_utf8_lossy(&buffer[..idx]);
+        let rendered = format!("{prefix}{}", line.trim_end_matches('\r'));
         on_line(rendered.as_str());
         buffer.drain(..=idx);
     }
 }
 
-fn flush_remaining_line<F: Fn(&str) + Send + Sync>(buffer: &mut String, prefix: &str, on_line: &F) {
+fn flush_remaining_line<F: Fn(&str) + Send + Sync>(
+    buffer: &mut Vec<u8>,
+    prefix: &str,
+    on_line: &F,
+) {
     if !buffer.is_empty() {
-        let line = buffer.trim_end_matches('\r').to_string();
-        let rendered = format!("{prefix}{line}");
+        let line = String::from_utf8_lossy(buffer);
+        let rendered = format!("{prefix}{}", line.trim_end_matches('\r'));
         on_line(rendered.as_str());
         buffer.clear();
     }
@@ -551,9 +561,55 @@ fn shell_single_quote(value: &str) -> String {
 mod tests {
     use russh::client::Handler;
 
+    use std::sync::Mutex;
+
     use super::{
-        canonicalize_host, require_exit_status, socket_address, AuthMethod, Client, ClientError,
+        canonicalize_host, flush_complete_lines, flush_remaining_line, require_exit_status,
+        socket_address, AuthMethod, Client, ClientError,
     };
+
+    #[test]
+    fn multibyte_characters_split_across_packets_survive_line_flushing() {
+        let collected = Mutex::new(Vec::new());
+        let on_line = |line: &str| collected.lock().expect("lock").push(line.to_string());
+
+        // "配置完成\n" split mid-codepoint, as a packet boundary would do.
+        let full = "配置完成\n".as_bytes();
+        let split_at = 5; // inside the second character
+        let mut buffer = Vec::new();
+
+        buffer.extend_from_slice(&full[..split_at]);
+        flush_complete_lines(&mut buffer, "", &on_line);
+        assert!(collected.lock().expect("lock").is_empty());
+
+        buffer.extend_from_slice(&full[split_at..]);
+        flush_complete_lines(&mut buffer, "", &on_line);
+
+        assert_eq!(
+            *collected.lock().expect("lock"),
+            vec!["配置完成".to_string()]
+        );
+        assert!(buffer.is_empty());
+    }
+
+    #[test]
+    fn flush_helpers_strip_carriage_returns_and_apply_prefix() {
+        let collected = Mutex::new(Vec::new());
+        let on_line = |line: &str| collected.lock().expect("lock").push(line.to_string());
+
+        let mut buffer = b"first\r\nsecond\r\ntail".to_vec();
+        flush_complete_lines(&mut buffer, "[stderr] ", &on_line);
+        flush_remaining_line(&mut buffer, "[stderr] ", &on_line);
+
+        assert_eq!(
+            *collected.lock().expect("lock"),
+            vec![
+                "[stderr] first".to_string(),
+                "[stderr] second".to_string(),
+                "[stderr] tail".to_string(),
+            ]
+        );
+    }
 
     #[test]
     fn formats_ipv4_domain_and_ipv6_socket_addresses() {

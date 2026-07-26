@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './invoke';
 
 export interface SystemStatus {
   cpuPercent: number;
@@ -23,7 +23,8 @@ export interface NetworkStats {
 export interface ServiceStatus {
   name: string;
   protocol: string;
-  port: number;
+  /** 后端从 systemd 状态里尽力解析；解析不出时为 null（`Option<u16>` 序列化结果）。 */
+  port: number | null;
   active: boolean;
   running: boolean;
 }

@@ -172,14 +172,19 @@ fn parse_disk(result: ExecOutput) -> (u64, u64, u64, f64) {
     (total, used, available, usage_percent)
 }
 
+/// Parses a `df -h` style size such as `42G`, `1.5T` or a plain byte count.
+///
+/// Splits on the character boundary rather than the byte index: a non-ASCII trailing
+/// character (localized `df` output, or a compromised/unexpected host) would otherwise
+/// slice mid-codepoint and panic. Unrecognised suffixes fall back to parsing the whole
+/// string, so a unit-less value keeps its last digit.
 fn parse_size_to_bytes(size_str: &str) -> u64 {
     let size_str = size_str.trim();
-    if size_str.is_empty() {
+    let Some(last_char) = size_str.chars().last() else {
         return 0;
-    }
+    };
 
-    let last_char = size_str.chars().last().unwrap_or('0');
-    let numeric_str = &size_str[..size_str.len() - 1];
+    let numeric_str = &size_str[..size_str.len() - last_char.len_utf8()];
     let value: f64 = numeric_str.parse().unwrap_or(0.0);
 
     match last_char {
@@ -188,7 +193,8 @@ fn parse_size_to_bytes(size_str: &str) -> u64 {
         'G' | 'g' => (value * 1024.0 * 1024.0 * 1024.0) as u64,
         'T' | 't' => (value * 1024.0 * 1024.0 * 1024.0 * 1024.0) as u64,
         'P' | 'p' => (value * 1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0) as u64,
-        _ => numeric_str.parse::<u64>().unwrap_or(0),
+        'B' | 'b' => numeric_str.parse::<u64>().unwrap_or(0),
+        _ => size_str.parse::<f64>().unwrap_or(0.0) as u64,
     }
 }
 
@@ -219,6 +225,20 @@ mod tests {
         );
 
         assert_eq!(parse_cpu_usage(result), 40.0);
+    }
+
+    #[test]
+    fn parse_size_to_bytes_handles_units_plain_numbers_and_non_ascii_suffixes() {
+        assert_eq!(parse_size_to_bytes("42G"), 42 * 1024 * 1024 * 1024);
+        assert_eq!(parse_size_to_bytes("1.5T"), 1_649_267_441_664);
+        assert_eq!(parse_size_to_bytes("512B"), 512);
+        // A unit-less value must keep its last digit, not be truncated to "51".
+        assert_eq!(parse_size_to_bytes("512"), 512);
+        assert_eq!(parse_size_to_bytes("0"), 0);
+        assert_eq!(parse_size_to_bytes(""), 0);
+        // A multi-byte trailing character must not slice mid-codepoint.
+        assert_eq!(parse_size_to_bytes("42Ｇ"), 0);
+        assert_eq!(parse_size_to_bytes("兆"), 0);
     }
 
     #[test]

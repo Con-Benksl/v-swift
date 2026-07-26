@@ -10,7 +10,11 @@
         "minWidth": 520,
         "minHeight": 560
       }
-    ]
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'",
+      "devCsp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost ws://localhost:1420 http://localhost:1420; object-src 'none'"
+    }
   },
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -22,6 +26,12 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
+    "publisher": "Con-Benksl",
+    "copyright": "Copyright © 2026 Con-Benksl. MIT Licensed.",
+    "category": "Utility",
+    "licenseFile": "../LICENSE",
+    "shortDescription": "VPS 代理节点部署与管理工具",
+    "longDescription": "V-Swift 通过 SSH 连接你自己的 VPS，自动安装并配置 VLESS-Reality 或 Hysteria2 服务，生成订阅信息，并提供服务状态与日志的控制面板。",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -32,6 +42,9 @@
     ]
   },
   "plugins": {
+    "shell": {
+      "open": "(?:https?|mailto|tel|v2rayn|shadowrocket|nekobox|clash)://[^\\s\"'<>|]+"
+    },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFBRDY5RDFGNzJEOThCQUEKUldTcWk5bHlINTNXR3U0Y0w0L1IvTFFia3RwSm5zVG1NNlFoK0NNVXdTSU15NVZsUlVvMTR6ZG4K",
       "endpoints": [

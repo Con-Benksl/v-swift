@@ -1,5 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { invoke, listen, type UnlistenFn } from './invoke';
 import {
   ConnectionTarget,
   DeployEvent,
@@ -76,4 +75,15 @@ export async function forgetVpsProfile(id: string): Promise<void> {
 
 export async function forgetOrphanVpsProfiles(profileIds: string[]): Promise<number> {
   return invoke<number>('forget_orphan_vps_profiles', { profileIds });
+}
+
+/**
+ * 把 URL 交给操作系统打开（客户端一键导入用的 `v2rayn://` 等自定义 scheme）。
+ *
+ * 不能用 `window.open`：WebView 不会像浏览器那样把未知 scheme 转交系统，
+ * 导航会被直接取消，按钮表现为「点了没反应」。允许的 scheme 由
+ * `tauri.conf.json` 的 `plugins.shell.open` 正则限定。
+ */
+export async function openExternal(url: string): Promise<void> {
+  await invoke('plugin:shell|open', { path: url });
 }

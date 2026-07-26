@@ -14,6 +14,12 @@ export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
    * @default false
    */
   dot?: boolean;
+  /**
+   * 色点呼吸外环（仅表示「正在发生」的实时状态时开启，如运行中/连接中；
+   * 静态结果不要开，避免页面到处闪动）
+   * @default false
+   */
+  pulse?: boolean;
 }
 
 const variantClass: Record<BadgeVariant, string> = {
@@ -37,10 +43,26 @@ const dotClass: Record<BadgeVariant, string> = {
  * 徽章：index.css `.badge-*` 全局类的薄包装，浅底深字；dot=true 时左侧加状态色点。
  * 用法：<Badge variant="success" dot>运行中</Badge>
  */
-export function Badge({ variant = 'neutral', dot = false, className = '', children, ...rest }: BadgeProps) {
+export function Badge({
+  variant = 'neutral',
+  dot = false,
+  pulse = false,
+  className = '',
+  children,
+  ...rest
+}: BadgeProps) {
   return (
     <span className={`${variantClass[variant]} ${className}`.trim()} {...rest}>
-      {dot ? <span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${dotClass[variant]}`} /> : null}
+      {dot ? (
+        <span aria-hidden="true" className="relative flex h-1.5 w-1.5 shrink-0">
+          {pulse ? (
+            <span
+              className={`absolute inset-0 rounded-full motion-safe:animate-ping-soft ${dotClass[variant]}`}
+            />
+          ) : null}
+          <span className={`relative h-1.5 w-1.5 rounded-full ${dotClass[variant]}`} />
+        </span>
+      ) : null}
       {children}
     </span>
   );

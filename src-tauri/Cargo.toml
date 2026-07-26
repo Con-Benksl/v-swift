@@ -1,7 +1,12 @@
 [package]
 name = "v-swift"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
+description = "Deploy and manage VLESS-Reality / Hysteria2 nodes on your own VPS over SSH."
+authors = ["Con-Benksl"]
+license = "MIT"
+repository = "https://github.com/Con-Benksl/v-swift"
+rust-version = "1.77"
 
 [lib]
 name = "vps_node_deployer_lib"
@@ -40,3 +45,6 @@ tauri-plugin-process = "2.3.1"
 [profile.release]
 panic = "abort"
 codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

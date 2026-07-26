@@ -4,9 +4,13 @@ import ConnectForm, { ConnectFormValue } from '../components/ConnectForm';
 import DeployProgress from '../components/DeployProgress';
 import ProtocolPicker, { ProtocolPickerValue } from '../components/ProtocolPicker';
 import SubscriptionView from '../components/SubscriptionView';
-import { Button, Callout, PageShell, SectionHeader, Spinner } from '../components/ui';
+import { Button, Callout, Modal, PageShell, SectionHeader, Spinner } from '../components/ui';
 import { detectOs, getSubscription, listVpsProfiles, testConnection } from '../ipc';
-import { extractUnknownSshHostKey, mapConnectionError } from '../ipc/errors';
+import {
+  extractUnknownSshHostKey,
+  mapConnectionError,
+  type UnknownSshHostKey,
+} from '../ipc/errors';
 import { isValidNodeName, isValidSni } from '../lib';
 import { useDeploymentActivity } from '../lib/deploymentActivity';
 import {
@@ -257,6 +261,12 @@ export default function NewNodeWizard() {
   const [profilesError, setProfilesError] = useState('');
   const [testState, setTestState] = useState<'idle' | 'loading' | 'ok' | 'err'>('idle');
   const [testError, setTestError] = useState('');
+  /**
+   * 首次连接遇到未知 SSH 主机密钥时待用户确认的指纹。
+   * 必须用应用内 Modal 确认：WebView（wry）未实现 WKUIDelegate 的 JS 对话框回调，
+   * 原生 window.confirm 在 macOS 上会被当作“取消”立即返回 false，导致永远无法信任新主机。
+   */
+  const [pendingHostKey, setPendingHostKey] = useState<UnknownSshHostKey | null>(null);
   const [osInfo, setOsInfo] = useState<OsInfo | null>(null);
   const [events, setEvents] = useState<DeployEvent[]>([]);
   const [currentStep, setCurrentStep] = useState('');
@@ -401,7 +411,11 @@ export default function NewNodeWizard() {
     });
   };
 
-  const handleTestConnection = () => {
+  /**
+   * 跑一次「测试连接 + 识别系统」。
+   * `trustedHostKey` 只有在用户已在 Modal 中核对并确认指纹后才会传入。
+   */
+  const runConnectionTest = (trustedHostKey?: UnknownSshHostKey) => {
     if (
       credential.mode === 'manual' &&
       (!Number.isInteger(credential.port) || credential.port < 1 || credential.port > 65535)
@@ -416,7 +430,17 @@ export default function NewNodeWizard() {
     const requestId = connectionTestRequestIdRef.current + 1;
     connectionTestRequestIdRef.current = requestId;
     const credentialSnapshot = credential;
-    const target = buildConnectionTarget(credentialSnapshot);
+    const baseTarget = buildConnectionTarget(credentialSnapshot);
+    const target: ConnectionTarget = trustedHostKey
+      ? {
+          ...baseTarget,
+          acceptNewHostKey: true,
+          expectedHostKey: {
+            algorithm: trustedHostKey.algorithm,
+            fingerprint: trustedHostKey.fingerprint,
+          },
+        }
+      : baseTarget;
     const isCurrentRequest = () =>
       connectionTestRequestIdRef.current === requestId &&
       sameConnectionInput(credentialSnapshot, credentialRef.current);
@@ -425,39 +449,8 @@ export default function NewNodeWizard() {
     setTestError('');
     setOsInfo(null);
 
-    const testAndDetect = async () => {
-      try {
-        await testConnection(target);
-      } catch (error) {
-        const unknownKey = extractUnknownSshHostKey(error);
-        if (!unknownKey || !isCurrentRequest()) {
-          throw error;
-        }
-
-        const confirmed = window.confirm(
-          `首次连接 ${unknownKey.host}:${unknownKey.port}\n\n` +
-            `SSH 主机密钥：${unknownKey.algorithm}\n` +
-            `指纹：${unknownKey.fingerprint}\n\n` +
-            '请先通过云厂商控制台或其他可信渠道核对指纹。只有确认一致后，点击“确定”才会写入 known_hosts。',
-        );
-        if (!confirmed) {
-          throw new Error('已取消信任新的 SSH 主机密钥。');
-        }
-        if (!isCurrentRequest()) return null;
-        await testConnection({
-          ...target,
-          acceptNewHostKey: true,
-          expectedHostKey: {
-            algorithm: unknownKey.algorithm,
-            fingerprint: unknownKey.fingerprint,
-          },
-        });
-      }
-
-      return isCurrentRequest() ? detectOs(target) : null;
-    };
-
-    void testAndDetect()
+    void testConnection(target)
+      .then(() => (isCurrentRequest() ? detectOs(baseTarget) : null))
       .then((info) => {
         if (!info || !isCurrentRequest()) {
           return;
@@ -469,9 +462,34 @@ export default function NewNodeWizard() {
         if (!isCurrentRequest()) {
           return;
         }
+
+        // 未知主机密钥不是失败，而是需要用户核对指纹后决定是否信任。
+        const unknownKey = trustedHostKey ? null : extractUnknownSshHostKey(error);
+        if (unknownKey) {
+          setTestState('idle');
+          setTestError('');
+          setPendingHostKey(unknownKey);
+          return;
+        }
+
         setTestError(mapConnectionError(error));
         setTestState('err');
       });
+  };
+
+  const handleTestConnection = () => runConnectionTest();
+
+  const confirmPendingHostKey = () => {
+    const trusted = pendingHostKey;
+    if (!trusted) return;
+    setPendingHostKey(null);
+    runConnectionTest(trusted);
+  };
+
+  const rejectPendingHostKey = () => {
+    setPendingHostKey(null);
+    setTestState('err');
+    setTestError('已取消信任新的 SSH 主机密钥，未写入 known_hosts。');
   };
 
   const handleDeployEvent = (event: DeployEvent) => {
@@ -693,6 +711,51 @@ export default function NewNodeWizard() {
             />
           </StepTransition>
         ) : null}
+
+        {/* 首次连接的主机密钥确认：应用内 Modal，不依赖 WebView 的原生 confirm */}
+        <Modal
+          open={pendingHostKey !== null}
+          onClose={rejectPendingHostKey}
+          title="首次连接：确认服务器身份"
+          description={
+            pendingHostKey
+              ? `${pendingHostKey.host}:${pendingHostKey.port} 尚未出现在 known_hosts 中。`
+              : undefined
+          }
+          size="md"
+          footer={
+            <>
+              <Button variant="secondary" onClick={rejectPendingHostKey}>
+                取消
+              </Button>
+              <Button variant="primary" onClick={confirmPendingHostKey}>
+                指纹一致，信任此服务器
+              </Button>
+            </>
+          }
+        >
+          <p>
+            请先通过云厂商控制台、VPS 初始化邮件或其他可信渠道核对下面的指纹。
+            确认一致后才会写入 known_hosts；此后该服务器的密钥若发生变化，连接会被拒绝。
+          </p>
+          <dl className="mt-4 space-y-3 rounded-control bg-surface-50 p-3.5 dark:bg-surface-900">
+            <div>
+              <dt className="text-xs text-surface-500 dark:text-surface-400">密钥算法</dt>
+              <dd className="mt-0.5 font-mono text-sm text-surface-800 dark:text-surface-100">
+                {pendingHostKey?.algorithm}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-surface-500 dark:text-surface-400">指纹</dt>
+              <dd className="mt-0.5 break-all font-mono text-sm text-surface-800 dark:text-surface-100">
+                {pendingHostKey?.fingerprint}
+              </dd>
+            </div>
+          </dl>
+          <Callout variant="warning" className="mt-4">
+            如果这台服务器你以前连接过，指纹却变了，请不要信任：这可能是中间人攻击。
+          </Callout>
+        </Modal>
 
         {step === 3 && node && subscription ? (
           <StepTransition key={3}>

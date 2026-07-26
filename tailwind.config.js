@@ -94,19 +94,25 @@ export default {
         panel: '1rem',
       },
       boxShadow: {
-        // 两档低透明度暖灰投影（stone-900 #1c1917 为基色），弃用 shadow-xl 级别
-        card: '0 1px 2px 0 rgb(28 25 23 / 0.05)',
-        pop: '0 4px 16px -2px rgb(28 25 23 / 0.10), 0 2px 6px -2px rgb(28 25 23 / 0.06)',
+        // 分层低透明度暖灰投影（stone-900 #1c1917 为基色）：
+        // card=静置卡片、pop=浮层/弹窗、lift=可交互卡片 hover 抬升
+        card: '0 1px 2px 0 rgb(28 25 23 / 0.04), 0 1px 1px -0.5px rgb(28 25 23 / 0.04)',
+        pop: '0 12px 32px -8px rgb(28 25 23 / 0.14), 0 4px 12px -4px rgb(28 25 23 / 0.08), 0 1px 3px 0 rgb(28 25 23 / 0.05)',
+        lift: '0 6px 16px -4px rgb(28 25 23 / 0.10), 0 2px 6px -2px rgb(28 25 23 / 0.06)',
       },
       fontFamily: {
+        // Latin 交给系统 UI 字体（SF Pro / Segoe UI Variable），中文回落 PingFang 系；
+        // 顺序即层级：Latin 字形质量优先，CJK 覆盖完整性兜底。
         sans: [
+          '-apple-system',
+          'BlinkMacSystemFont',
+          'system-ui',
+          'Segoe UI Variable',
+          'Segoe UI',
           'PingFang SC',
           'Hiragino Sans GB',
           'Microsoft YaHei',
           'Noto Sans CJK SC',
-          'system-ui',
-          '-apple-system',
-          'Segoe UI',
           'Roboto',
           'Helvetica Neue',
           'Arial',
@@ -121,6 +127,38 @@ export default {
           'Courier New',
           'monospace',
         ],
+      },
+      keyframes: {
+        // 骨架屏高光扫过（配合 Skeleton 的 before 伪元素使用）
+        shimmer: {
+          '100%': { transform: 'translateX(100%)' },
+        },
+        // 页面/区块入场：轻微上移淡入
+        'fade-up': {
+          '0%': { opacity: '0', transform: 'translateY(6px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        // 弹窗面板入场：缩放淡入
+        'scale-in': {
+          '0%': { opacity: '0', transform: 'scale(0.96) translateY(4px)' },
+          '100%': { opacity: '1', transform: 'scale(1) translateY(0)' },
+        },
+        'fade-in': {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+        // 运行中状态点的呼吸外环（配合 Badge pulse 使用）
+        'ping-soft': {
+          '0%': { transform: 'scale(1)', opacity: '0.6' },
+          '80%, 100%': { transform: 'scale(2.4)', opacity: '0' },
+        },
+      },
+      animation: {
+        shimmer: 'shimmer 1.8s ease-in-out infinite',
+        'fade-up': 'fade-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) both',
+        'scale-in': 'scale-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both',
+        'fade-in': 'fade-in 0.18s ease-out both',
+        'ping-soft': 'ping-soft 1.8s cubic-bezier(0, 0, 0.2, 1) infinite',
       },
     },
   },

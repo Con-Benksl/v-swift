@@ -107,6 +107,7 @@ function GroupSkeleton() {
 export default function NodeList() {
   const navigate = useNavigate();
   const {
+    active: deploymentActive,
     acquire: acquireDeploymentActivity,
     release: releaseDeploymentActivity,
   } = useDeploymentActivity();
@@ -260,7 +261,12 @@ export default function NodeList() {
           <>
             {/* UpdateControl 由外壳代理改造为次要样式，此处仅提供页头挂载位 */}
             <UpdateControl />
-            <Button variant="primary" onClick={() => navigate('/new')}>
+            <Button
+              variant="primary"
+              onClick={() => navigate('/new')}
+              disabled={deploymentActive}
+              title={deploymentActive ? '远端任务进行中，请稍候' : undefined}
+            >
               新建节点
             </Button>
           </>
@@ -288,7 +294,7 @@ export default function NodeList() {
           </Callout>
         ) : groups.length === 0 ? (
           <Card padding="lg" className="text-center">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-panel bg-brand-50 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-panel bg-gradient-to-b from-brand-50 to-brand-100 text-brand-600 ring-1 ring-inset ring-brand-200/70 dark:from-brand-900/50 dark:to-brand-800/40 dark:text-brand-300 dark:ring-brand-500/20">
               <EmptyServerIcon />
             </div>
             <h2 className="mt-4 text-lg font-semibold text-surface-800 dark:text-surface-100">
@@ -349,6 +355,8 @@ export default function NodeList() {
                           onClick={() =>
                             navigate(`/control?vpsId=${encodeURIComponent(vpsId(group))}`)
                           }
+                          disabled={deploymentActive}
+                          title={deploymentActive ? '远端任务进行中，请稍候' : undefined}
                         >
                           控制面板
                         </Button>
@@ -356,7 +364,7 @@ export default function NodeList() {
                           variant="ghost"
                           size="sm"
                           onClick={() => startHostEdit(group)}
-                          disabled={hostUpdateState === 'saving'}
+                          disabled={deploymentActive}
                         >
                           修改 IP
                         </Button>
@@ -430,7 +438,7 @@ export default function NodeList() {
                       return (
                         <article
                           key={node.id}
-                          className="rounded-card border border-surface-border bg-surface-50 p-4 transition-colors duration-150 hover:border-brand-300 dark:border-surface-700 dark:bg-surface-900 dark:hover:border-brand-700"
+                          className="group rounded-card border border-surface-border bg-surface-50 p-4 transition-[border-color,box-shadow] duration-150 hover:border-brand-300 hover:shadow-card dark:border-surface-700 dark:bg-surface-900 dark:hover:border-brand-700"
                         >
                           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                             <div className="min-w-0">
@@ -455,10 +463,14 @@ export default function NodeList() {
                             <button
                               type="button"
                               onClick={() => navigate(`/nodes/${node.id}`)}
-                              className="inline-flex shrink-0 items-center gap-1 self-start rounded-control px-2 py-1.5 text-sm font-medium text-brand-600 transition-colors duration-150 hover:bg-brand-50 hover:text-brand-700 dark:text-brand-300 dark:hover:bg-brand-900/40 dark:hover:text-brand-200 lg:self-center"
+                              disabled={deploymentActive}
+                              title={deploymentActive ? '远端任务进行中，请稍候' : undefined}
+                              className="inline-flex shrink-0 items-center gap-1 self-start rounded-control px-2 py-1.5 text-sm font-medium text-brand-600 transition-colors duration-150 hover:bg-brand-50 hover:text-brand-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent dark:text-brand-300 dark:hover:bg-brand-900/40 dark:hover:text-brand-200 lg:self-center"
                             >
                               查看详情
-                              <ChevronRightIcon />
+                              <span className="transition-transform duration-150 motion-safe:group-hover:translate-x-0.5">
+                                <ChevronRightIcon />
+                              </span>
                             </button>
                           </div>
                         </article>

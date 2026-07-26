@@ -40,7 +40,7 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(function Card(
     'rounded-card border border-surface-border bg-surface-card shadow-card',
     'dark:border-surface-700 dark:bg-surface-800',
     hoverable
-      ? 'transition-shadow duration-150 hover:border-surface-300 hover:shadow-pop dark:hover:border-surface-600'
+      ? 'transition-[box-shadow,border-color,transform] duration-200 hover:border-surface-300 hover:shadow-lift motion-safe:hover:-translate-y-0.5 dark:hover:border-surface-600'
       : '',
     paddingClass[padding],
     className,

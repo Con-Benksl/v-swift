@@ -19,7 +19,9 @@ export interface SkeletonProps extends HTMLAttributes<HTMLDivElement> {
  * `<Skeleton variant="block" className="h-24 w-full" />`
  */
 export function Skeleton({ variant = 'block', className = '', ...rest }: SkeletonProps) {
-  const base = 'animate-pulse bg-surface-200 dark:bg-surface-700';
+  /* shimmer 高光扫过（before 伪元素平移），比整体 pulse 更接近实速加载感 */
+  const base =
+    'relative overflow-hidden bg-surface-200/80 before:absolute before:inset-0 before:-translate-x-full before:animate-shimmer before:bg-gradient-to-r before:from-transparent before:via-white/50 before:to-transparent dark:bg-surface-700/70 dark:before:via-white/10';
   const shape: Record<SkeletonVariant, string> = {
     block: 'rounded-control',
     line: 'h-4 w-full rounded-full',

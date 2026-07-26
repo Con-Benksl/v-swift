@@ -25,9 +25,12 @@ export function SectionHeader({ eyebrow, title, description, actions, className 
     <div className={`flex flex-wrap items-start justify-between gap-x-4 gap-y-3 ${className}`.trim()}>
       <div className="min-w-0">
         {eyebrow ? (
-          <p className="mb-1 text-xs font-medium text-brand-600 dark:text-brand-300">{eyebrow}</p>
+          <p className="mb-1.5 inline-flex items-center gap-1.5 text-xs font-semibold tracking-wide text-brand-600 dark:text-brand-300">
+            <span aria-hidden="true" className="h-1 w-1 rounded-full bg-brand-500 dark:bg-brand-400" />
+            {eyebrow}
+          </p>
         ) : null}
-        <h1 className="break-words text-xl font-semibold leading-tight text-surface-800 dark:text-surface-100">
+        <h1 className="break-words text-2xl font-bold leading-tight tracking-tight text-surface-900 dark:text-surface-50">
           {title}
         </h1>
         {description ? (

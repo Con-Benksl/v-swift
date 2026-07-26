@@ -194,6 +194,11 @@ export default function DeployProgress({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const hasStartedRef = useRef(false);
   const receivedBackendErrorRef = useRef(false);
+  /**
+   * 后端最近报告的步骤。必须走 ref：本 effect 只在挂载时执行一次，
+   * 读 currentStep prop 会永远拿到首帧的空值，把失败错误地归因到固定步骤。
+   */
+  const latestStepRef = useRef('');
   const orderedSteps = [...baseSteps, 'reachability', 'subscription', 'done'];
 
   useEffect(() => {
@@ -204,6 +209,9 @@ export default function DeployProgress({
     hasStartedRef.current = true;
 
     const wrappedOnEvent = (event: DeployEvent) => {
+      if (event.kind === 'step' || event.kind === 'error') {
+        latestStepRef.current = event.step;
+      }
       if (event.kind === 'error') {
         receivedBackendErrorRef.current = true;
       }
@@ -219,11 +227,13 @@ export default function DeployProgress({
         if (receivedBackendErrorRef.current) {
           return;
         }
-        const step = currentStep || 'install';
+        // 没有拿到后端错误事件时，用最近一次真实步骤定位失败点；
+        // 一步都没开始就失败时归到首步。
+        const step = latestStepRef.current || baseSteps[0];
         const message = extractErrorMessage(error, '部署失败（无详细信息）');
         onEvent({ kind: 'error', step, message });
       });
-  }, [currentStep, onComplete, onEvent, params]);
+  }, [onComplete, onEvent, params]);
 
   /* 失败后自动展开日志，便于定位问题 */
   useEffect(() => {
@@ -277,7 +287,7 @@ export default function DeployProgress({
             aria-label={`部署总进度 ${progressPercent}%`}
           >
             <div
-              className="h-full rounded-full bg-brand-600 transition-[width] duration-500 dark:bg-brand-500"
+              className="h-full rounded-full bg-gradient-to-r from-brand-500 to-brand-600 transition-[width] duration-500 ease-out dark:from-brand-400 dark:to-brand-500"
               style={{ width: `${progressPercent}%` }}
             />
           </div>

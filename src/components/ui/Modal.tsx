@@ -167,7 +167,7 @@ export function Modal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-surface-950/40 p-4 dark:bg-surface-950/60"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-surface-950/40 p-4 backdrop-blur-[2px] motion-safe:animate-fade-in dark:bg-surface-950/60"
       onMouseDown={handleOverlayMouseDown}
     >
       <div
@@ -177,7 +177,7 @@ export function Modal({
         aria-labelledby={titleIdRef.current}
         aria-describedby={description ? descIdRef.current : undefined}
         tabIndex={-1}
-        className={`w-full ${sizeClass[size]} rounded-panel border border-surface-border bg-surface-card shadow-pop outline-none dark:border-surface-700 dark:bg-surface-800`}
+        className={`w-full ${sizeClass[size]} rounded-panel border border-surface-border bg-surface-card shadow-pop outline-none motion-safe:animate-scale-in dark:border-surface-700 dark:bg-surface-800`}
       >
         {/* 头部：标题 + 说明 + 关闭按钮 */}
         <div className="flex items-start justify-between gap-4 border-b border-surface-border px-5 py-4 dark:border-surface-700">

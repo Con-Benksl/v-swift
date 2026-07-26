@@ -1,4 +1,5 @@
 import { useId, useState } from 'react';
+import { openExternal } from '../ipc';
 import { NodeRecord } from '../ipc/types';
 import { protocolLabel, statusLabel } from '../lib';
 import { Badge, Button, Card, StatCard, useToast } from './ui';
@@ -41,6 +42,19 @@ const importLinks: Array<{
     buildUrl: (uri) => `clash://install-config?url=${encodeURIComponent(uri)}`,
   },
 ];
+
+/**
+ * 二维码 SVG 走 innerHTML，所以在渲染前挡一道。
+ *
+ * 当前来源是后端本地用 qrcode crate 渲染的纯矩形 SVG，不含脚本；这层校验是纵深防御，
+ * 防止未来改成从远端取图时把 XSS 直接引进有完整 IPC 权限的 WebView。
+ */
+function isSafeQrSvg(svg: string | undefined): svg is string {
+  if (!svg) return false;
+  const normalized = svg.trim().toLowerCase();
+  if (!normalized.startsWith('<svg')) return false;
+  return !/<script|<foreignobject|\son\w+\s*=|javascript:/.test(normalized);
+}
 
 /** 默认掩码展示：保留协议头，其余以圆点替代，点击可展开 */
 function maskUri(value: string): string {
@@ -189,6 +203,17 @@ export default function SubscriptionView({
         : '以下内容仅作为历史订阅记录展示；节点已卸载，原有连接不再可用。';
   const importDisabled = node.status === 'uninstalled';
 
+  /** 交给系统打开客户端深链；失败时明确告知，而不是静默无反应。 */
+  const importToClient = async (label: string, url: string) => {
+    try {
+      await openExternal(url);
+    } catch {
+      toast.error(`无法唤起 ${label}，请确认已安装该客户端，或改用复制 URI 手动导入。`, {
+        duration: 5000,
+      });
+    }
+  };
+
   const copyUri = async (key: string, value: string, successMessage: string) => {
     try {
       await navigator.clipboard.writeText(value);
@@ -242,10 +267,16 @@ export default function SubscriptionView({
           <p className="mt-1 text-xs text-surface-500 dark:text-surface-400">
             扫码导入，或复制下方 URI 手动添加。
           </p>
-          <div
-            className="mx-auto mt-4 flex h-48 w-48 items-center justify-center rounded-card border border-surface-border bg-white p-3"
-            dangerouslySetInnerHTML={{ __html: qrSvg }}
-          />
+          {isSafeQrSvg(qrSvg) ? (
+            <div
+              className="mx-auto mt-4 flex h-48 w-48 items-center justify-center rounded-card border border-surface-border bg-white p-3"
+              dangerouslySetInnerHTML={{ __html: qrSvg }}
+            />
+          ) : (
+            <div className="mx-auto mt-4 flex h-48 w-48 items-center justify-center rounded-card border border-dashed border-surface-border p-3 text-center text-xs text-surface-500 dark:border-surface-700 dark:text-surface-400">
+              二维码不可用，请改用下方 URI 手动导入。
+            </div>
+          )}
           <div className="mt-4">
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs font-medium text-surface-500 dark:text-surface-400">
@@ -306,7 +337,7 @@ export default function SubscriptionView({
                     key={item.label}
                     variant={item.primary ? 'secondary' : 'ghost'}
                     size={item.primary ? 'md' : 'sm'}
-                    onClick={() => window.open(item.buildUrl(uri), '_self')}
+                    onClick={() => void importToClient(item.label, item.buildUrl(uri))}
                     disabled={importDisabled}
                     className="gap-1.5"
                   >
@@ -326,7 +357,7 @@ export default function SubscriptionView({
               <p className="mt-1 text-xs text-surface-500 dark:text-surface-400">
                 适合 Clash/Mihomo 订阅导入，客户端可显示服务端返回的用量头。
               </p>
-              {managedQrSvg ? (
+              {isSafeQrSvg(managedQrSvg) ? (
                 <div
                   className="mx-auto mt-4 flex h-48 w-48 items-center justify-center rounded-card border border-surface-border bg-white p-3"
                   dangerouslySetInnerHTML={{ __html: managedQrSvg }}
@@ -373,9 +404,9 @@ export default function SubscriptionView({
                     variant="ghost"
                     size="sm"
                     onClick={() =>
-                      window.open(
+                      void importToClient(
+                        'Clash/Mihomo',
                         `clash://install-config?url=${encodeURIComponent(managedUri)}`,
-                        '_self',
                       )
                     }
                     disabled={importDisabled}

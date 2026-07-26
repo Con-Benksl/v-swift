@@ -1,8 +1,17 @@
 {
   "name": "v-swift",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
+  "description": "Deploy and manage VLESS-Reality / Hysteria2 nodes on your own VPS over SSH.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Con-Benksl/v-swift.git"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",

@@ -34,7 +34,10 @@ export function PageShell({ width = 'xl', className = '', children, ...rest }: P
 
   return (
     <div className={classes} {...rest}>
-      <div className={`mx-auto w-full ${widthClass[width]} px-4 py-6 sm:px-6 lg:px-8`}>
+      {/* 页面级入场：轻微上移淡入（切路由时重挂载触发；系统减弱动效时自动跳过） */}
+      <div
+        className={`mx-auto w-full ${widthClass[width]} px-4 py-6 motion-safe:animate-fade-up sm:px-6 lg:px-8`}
+      >
         {children}
       </div>
     </div>

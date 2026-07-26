@@ -41,7 +41,7 @@ function ServiceRow({
             </h4>
             <Badge variant="info">{protocolLabel(service.protocol)}</Badge>
             {isRunning ? (
-              <Badge variant="success" dot>
+              <Badge variant="success" dot pulse>
                 运行中
               </Badge>
             ) : (

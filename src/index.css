@@ -8,6 +8,11 @@
  *  - 页面背景只允许出现在 body 与 .app-shell 两处，其余一律透明
  *  - 暗色约定：页面底 dark:surface-900 / 卡片 dark:surface-800 / 描边 dark:surface-700
  *  - 正文 surface-800(dark:surface-100)，次要文字 surface-500(dark:surface-400)
+ *  - 质感：实心按钮用纵向微渐变 + 内高光；卡片 shadow-card，浮层 shadow-pop，
+ *    可交互卡 hover 用 shadow-lift + 轻微上移
+ *  - 动效：入场 fade-up/scale-in，骨架 shimmer，实时状态点 ping-soft；
+ *    一律 motion-safe，减弱动效偏好下由 base 层统一压平
+ *  - 数字（指标/版本/端口）加 tabular-nums 防跳动
  * ========================================================== */
 
 @layer base {
@@ -88,6 +93,17 @@
   .dark *::-webkit-scrollbar-thumb:hover {
     background-color: rgb(120 113 108 / 0.8); /* surface-500 @ 80% */
   }
+
+  /* 系统减弱动效偏好：全局动画/过渡压到近零时长，保持终态可达 */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
 
 @layer components {
@@ -96,21 +112,23 @@
     @apply min-h-screen bg-surface text-surface-800 dark:bg-surface-900 dark:text-surface-100;
   }
 
-  /* ---- 按钮（供 components/ui/Button 包装，也可直接使用） ---- */
+  /* ---- 按钮（供 components/ui/Button 包装，也可直接使用） ----
+   * 质感约定：实心按钮 = 纵向微渐变 + 顶部 1px 内高光 + 语义色投影；
+   * 所有按钮按压时轻微缩放（motion-safe），disabled 半透明。 */
   .btn {
-    @apply inline-flex h-9 select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-control px-3.5 text-sm font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex h-9 select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-control px-3.5 text-sm font-medium transition-[color,background-color,border-color,box-shadow,transform] duration-150 disabled:cursor-not-allowed disabled:opacity-50 motion-safe:active:scale-[0.98] disabled:active:scale-100;
   }
 
   .btn-primary {
-    @apply btn bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-700 dark:bg-brand-600 dark:hover:bg-brand-500;
+    @apply btn bg-gradient-to-b from-brand-500 to-brand-600 text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.16),0_1px_2px_rgb(31_43_76/0.4)] hover:from-brand-600 hover:to-brand-700 active:from-brand-700 active:to-brand-700 dark:from-brand-500 dark:to-brand-700 dark:hover:from-brand-400 dark:hover:to-brand-600;
   }
 
   .btn-secondary {
-    @apply btn border border-surface-border bg-surface-card text-surface-700 shadow-card hover:bg-surface-100 active:bg-surface-200 dark:border-surface-700 dark:bg-surface-800 dark:text-surface-200 dark:hover:bg-surface-700;
+    @apply btn border border-surface-border bg-surface-card text-surface-700 shadow-card hover:border-surface-300 hover:bg-surface-50 active:bg-surface-100 dark:border-surface-700 dark:bg-surface-800 dark:text-surface-200 dark:hover:border-surface-600 dark:hover:bg-surface-700;
   }
 
   .btn-danger {
-    @apply btn bg-danger-600 text-white hover:bg-danger-700 active:bg-danger-700 dark:bg-danger-600 dark:hover:bg-danger-500;
+    @apply btn bg-gradient-to-b from-danger-500 to-danger-600 text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.16),0_1px_2px_rgb(123_36_50/0.4)] hover:from-danger-600 hover:to-danger-700 active:from-danger-700 active:to-danger-700 dark:from-danger-500 dark:to-danger-700 dark:hover:from-danger-400 dark:hover:to-danger-600;
   }
 
   .btn-ghost {

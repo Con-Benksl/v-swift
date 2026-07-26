@@ -162,10 +162,15 @@ function MoonIcon() {
 
 /* ---------------- 侧边栏 ---------------- */
 
+const NAV_ITEMS = [
+  { to: '/', end: true, label: '节点列表', Icon: ServerIcon },
+  { to: '/control', end: false, label: '控制面板', Icon: SlidersIcon },
+] as const;
+
 function SideNav() {
   const { active: deploymentActive } = useDeploymentActivity();
   const linkClass = ({ isActive }: { isActive: boolean }) =>
-    `flex items-center justify-center gap-2.5 rounded-control px-3 py-2 text-sm font-medium transition-colors duration-150 sm:justify-start ${deploymentActive ? 'cursor-not-allowed opacity-50' : ''} ${
+    `group relative flex items-center justify-center gap-2.5 rounded-control px-3 py-2 text-sm font-medium transition-colors duration-150 sm:justify-start ${deploymentActive ? 'cursor-not-allowed opacity-50' : ''} ${
       isActive
         ? 'bg-brand-50 text-brand-700 dark:bg-brand-700/20 dark:text-brand-300'
         : 'text-surface-600 hover:bg-surface-100 hover:text-surface-800 dark:text-surface-400 dark:hover:bg-surface-800 dark:hover:text-surface-100'
@@ -179,27 +184,31 @@ function SideNav() {
 
   return (
     <nav className="flex flex-col gap-1 px-3" aria-label="主导航">
-      <NavLink
-        to="/"
-        end
-        className={linkClass}
-        aria-disabled={deploymentActive || undefined}
-        onClick={preventNavigationWhileDeploying}
-        title={deploymentActive ? '部署或订阅读取进行中，请稍候' : '节点列表'}
-      >
-        <ServerIcon />
-        <span className="hidden sm:inline">节点列表</span>
-      </NavLink>
-      <NavLink
-        to="/control"
-        className={linkClass}
-        aria-disabled={deploymentActive || undefined}
-        onClick={preventNavigationWhileDeploying}
-        title={deploymentActive ? '部署或订阅读取进行中，请稍候' : '控制面板'}
-      >
-        <SlidersIcon />
-        <span className="hidden sm:inline">控制面板</span>
-      </NavLink>
+      {NAV_ITEMS.map(({ to, end, label, Icon }) => (
+        <NavLink
+          key={to}
+          to={to}
+          end={end}
+          className={linkClass}
+          aria-disabled={deploymentActive || undefined}
+          onClick={preventNavigationWhileDeploying}
+          title={deploymentActive ? '部署或订阅读取进行中，请稍候' : label}
+        >
+          {({ isActive }) => (
+            <>
+              {/* 当前项左缘指示条（仅展开态可见） */}
+              <span
+                aria-hidden="true"
+                className={`absolute -left-3 hidden h-5 w-0.5 rounded-r-full bg-brand-600 transition-opacity duration-150 dark:bg-brand-400 sm:block ${
+                  isActive ? 'opacity-100' : 'opacity-0'
+                }`}
+              />
+              <Icon />
+              <span className="hidden sm:inline">{label}</span>
+            </>
+          )}
+        </NavLink>
+      ))}
     </nav>
   );
 }
@@ -226,15 +235,27 @@ function Sidebar() {
   return (
     <aside className="flex w-16 shrink-0 flex-col border-r border-surface-border bg-surface-card transition-[width] duration-200 dark:border-surface-700 dark:bg-surface-900 sm:w-52">
       <div className="flex items-center justify-center gap-2.5 px-3 pb-5 pt-5 sm:justify-start sm:px-5">
-        <img src={logoUrl} alt="V-Swift" className="h-8 w-8" />
+        {/* 品牌区：logo 底部叠一层品牌色柔光，提升第一眼辨识度 */}
+        <div className="relative shrink-0">
+          <span
+            aria-hidden="true"
+            className="absolute inset-0 rounded-full bg-brand-500/25 blur-md dark:bg-brand-400/20"
+          />
+          <img src={logoUrl} alt="V-Swift" className="relative h-8 w-8" />
+        </div>
         <div className="hidden min-w-0 sm:block">
-          <h1 className="truncate text-base font-semibold text-surface-800 dark:text-surface-100">V-Swift</h1>
+          <h1 className="truncate text-base font-semibold tracking-tight text-surface-900 dark:text-surface-50">
+            V-Swift
+          </h1>
           <p className="text-xs text-surface-500 dark:text-surface-400">代理节点管理</p>
         </div>
       </div>
       <SideNav />
       <div className="mt-auto px-3 pb-4 pt-3">
         <ThemeToggle />
+        <p className="mt-3 hidden px-3 text-[11px] tabular-nums text-surface-400 dark:text-surface-500 sm:block">
+          v{__APP_VERSION__}
+        </p>
       </div>
     </aside>
   );
