@@ -2,6 +2,20 @@
 
 本项目的所有重要变更都会记录在这里。版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.0] - 2026-10-01
+
+### 升级
+
+- React 18 → 19.2.8，`react-router-dom` 7.18.1 → `react-router` 8.3.0（v8 起包名改回 `react-router`，相关 import 路径同步更新）。Node.js 要求提升至 22.22+（CI 同步切换到 Node 22）。
+
+### 安全
+
+- react-router 8.3.0 正式修复了 7.x 遗留的 RSC CSRF 公告（GHSA-qwww-vcr4-c8h2），0.4.1 中"已知并接受"的风险项关闭。
+
+### 修复
+
+- **AppImage 缺 `.DirIcon`**：升级 `@tauri-apps/cli` 至 2.12.x（含 tauri-bundler 2.9.4+），修复 AppDir 根目录 `.DirIcon` 与 `.desktop` 被写成绝对路径软链接的问题（上游 tauri-apps/tauri#15596）。此前打出的 AppImage 在其他机器挂载后链接悬空，AppImage 官方目录收录测试报 `FATAL: .DirIcon is missing`。
+
 ## [0.4.1] - 2026-07-26
 
 ### 安全
