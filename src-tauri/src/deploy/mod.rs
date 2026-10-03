@@ -74,7 +74,8 @@ pub trait ProgressSink: Send + Sync {
     fn log(&self, line: &str);
 }
 
-#[allow(clippy::double_must_use)] // async_trait 为 async 方法自动加 #[must_use]，与返回的 Future 自带 must_use 重复（Rust 1.99+ clippy 新 lint）
+#[allow(clippy::double_must_use)]
+// async_trait 为 async 方法自动加 #[must_use]，与返回的 Future 自带 must_use 重复（Rust 1.99+ clippy 新 lint）
 #[async_trait]
 pub trait Deployer: Send + Sync {
     fn protocol_id(&self) -> ProtocolId;
