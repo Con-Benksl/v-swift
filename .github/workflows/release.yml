@@ -95,8 +95,12 @@ jobs:
           args: ${{ matrix.args }}
 
       # AppImageHub 要求 AppImage 嵌入 update info 并随包发布 .zsync（见 #7429 复检 warning）。
-      # tauri-bundler 不支持该选项，故在构建后重新打包；二进制变化后必须重签名，
-      # 否则内置自动更新的签名校验会失败，latest.json 的 Linux 条目签名同步更新。
+      # tauri-bundler 不支持该选项，故在构建后直接 patch 二进制。
+      # 注意：完整重打包（appimagetool 解包再压）会改变 squashfs 二进制布局，
+      # 实测会导致 AppImageHub 机器人 firejail 测试报 AppRun Permission denied（v0.5.2 翻车）。
+      # 因此采用最小补丁：只改 runtime 中 90 字节的 update info 槽位（offset 932097），
+      # squashfs 原样保留。offset 与 runtime 版本绑定，patch 前会校验哨兵，失败则直接报错。
+      # 二进制变化后必须重签名，否则内置自动更新的签名校验会失败，latest.json 的 Linux 条目签名同步更新。
       - name: Embed AppImage update info and publish zsync
         if: matrix.platform == 'ubuntu-22.04'
         env:
@@ -109,22 +113,40 @@ jobs:
           cd "$BUNDLE_DIR"
           APPIMAGE="$(ls V-Swift_*_amd64.AppImage | head -n 1)"
           echo "Processing $APPIMAGE"
-
-          # appimagetool 本身是 AppImage，runner 无 FUSE，先解开再用
-          wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" -O /tmp/appimagetool.AppImage
-          chmod +x /tmp/appimagetool.AppImage
-          mkdir -p /tmp/aitools && cd /tmp/aitools
-          /tmp/appimagetool.AppImage --appimage-extract >/dev/null
-          cd "$GITHUB_WORKSPACE/$BUNDLE_DIR"
-
-          # 解开构建产物，重新嵌入 update info 并生成 .zsync（显式指定输出名以保持资产命名一致）
           chmod +x "$APPIMAGE"
-          ./"$APPIMAGE" --appimage-extract >/dev/null
-          rm "$APPIMAGE"
-          /tmp/aitools/squashfs-root/AppRun \
-            -u "gh-releases-zsync|Con-Benksl|v-swift|latest|V-Swift_*_amd64.AppImage.zsync" \
-            squashfs-root "$APPIMAGE"
-          rm -rf squashfs-root /tmp/aitools
+
+          # 最小补丁：在 runtime 的 update info 槽位写入 90 字节（16 字节校验 + 字符串）
+          # hex 由 appimagetool 对同版本 runtime 生成并实测验证（--appimage-updateinfo 可读出）
+          python3 - "$APPIMAGE" <<'PYEOF'
+          import sys
+          path = sys.argv[1]
+          OFFSET = 932097
+          # 16 字节校验 + "gh-releases-zsync|Con-Benksl|v-swift|latest|V-Swift_*_amd64.AppImage.zsync" + NUL 补齐
+          BLOCK = bytes.fromhex(
+              "405c8171a22717ab79483902476a15"
+              "67682d72656c65617365732d7a73796e63"
+              "7c436f6e2d42656e6b736c7c762d7377696674"
+              "7c6c61746573747c562d53776966745f2a5f616d643634"
+              "2e417070496d6167652e7a73796e6300"
+          )
+          assert len(BLOCK) == 90, f"block len {len(BLOCK)}"
+          with open(path, "r+b") as f:
+              f.seek(OFFSET)
+              old = f.read(90)
+              # 哨兵校验：原槽位应为"空"（无 update info），防止 runtime 版本变化导致 offset 漂移
+              assert b"gh-releases-zsync" not in old, "update info already present, abort"
+              assert old[16:] == b"\x00" * 74, f"sentinel mismatch at offset {OFFSET}, runtime may have changed"
+              f.seek(OFFSET)
+              f.write(BLOCK)
+          print("update info patched")
+          PYEOF
+
+          # 校验 runtime 能正确读出
+          ./"$APPIMAGE" --appimage-updateinfo | grep -q "gh-releases-zsync|Con-Benksl|v-swift"
+
+          # 生成 .zsync（供 AppImageUpdate 差量更新）
+          sudo apt-get install -y zsync
+          zsyncmake -u "https://github.com/Con-Benksl/v-swift/releases/download/${GITHUB_REF_NAME}/${APPIMAGE}.zsync" "$APPIMAGE"
           test -f "$APPIMAGE.zsync"
 
           # 二进制已变，原签名失效：用 Tauri 签名密钥重新签名

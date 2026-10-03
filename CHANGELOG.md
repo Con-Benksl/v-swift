@@ -2,6 +2,13 @@
 
 本项目的所有重要变更都会记录在这里。版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.3] - 2026-10-03
+
+### 修复
+
+- **AppImage 更新信息改用最小补丁**：0.5.2 曾用 appimagetool 完整重打包 AppImage 以嵌入 update info，实测导致 AppImageHub 机器人 firejail 测试报 `AppRun: Permission denied`（重打包改变了 squashfs 二进制布局）。本版本改为直接 patch 原包 runtime 中的 90 字节 update info 槽位，squashfs 原样保留；`.zsync` 改用 `zsyncmake` 直接生成。更新信息内容不变，`latest.json` 签名同步更新。
+- CI：修复 Rust 1.99 新增 `clippy::double_must_use` lint（`async_trait` 宏自动加的 `#[must_use]` 与 Future 自带重复，属工具链漂移非代码问题），`src-tauri/src/deploy/mod.rs` 加 `#[allow]`；另按 `cargo fmt` 要求调整注释位置。
+
 ## [0.5.2] - 2026-10-03
 
 ### 新增
