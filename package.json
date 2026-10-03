@@ -1,6 +1,6 @@
 {
   "name": "v-swift",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "private": true,
   "type": "module",
   "description": "Deploy and manage VLESS-Reality / Hysteria2 nodes on your own VPS over SSH.",

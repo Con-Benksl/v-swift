@@ -93,3 +93,60 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+      # AppImageHub 要求 AppImage 嵌入 update info 并随包发布 .zsync（见 #7429 复检 warning）。
+      # tauri-bundler 不支持该选项，故在构建后重新打包；二进制变化后必须重签名，
+      # 否则内置自动更新的签名校验会失败，latest.json 的 Linux 条目签名同步更新。
+      - name: Embed AppImage update info and publish zsync
+        if: matrix.platform == 'ubuntu-22.04'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          BUNDLE_DIR="src-tauri/target/release/bundle/appimage"
+          cd "$BUNDLE_DIR"
+          APPIMAGE="$(ls V-Swift_*_amd64.AppImage | head -n 1)"
+          echo "Processing $APPIMAGE"
+
+          # appimagetool 本身是 AppImage，runner 无 FUSE，先解开再用
+          wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" -O /tmp/appimagetool.AppImage
+          chmod +x /tmp/appimagetool.AppImage
+          mkdir -p /tmp/aitools && cd /tmp/aitools
+          /tmp/appimagetool.AppImage --appimage-extract >/dev/null
+          cd "$GITHUB_WORKSPACE/$BUNDLE_DIR"
+
+          # 解开构建产物，重新嵌入 update info 并生成 .zsync（显式指定输出名以保持资产命名一致）
+          chmod +x "$APPIMAGE"
+          ./"$APPIMAGE" --appimage-extract >/dev/null
+          rm "$APPIMAGE"
+          /tmp/aitools/squashfs-root/AppRun \
+            -u "gh-releases-zsync|Con-Benksl|v-swift|latest|V-Swift_*_amd64.AppImage.zsync" \
+            squashfs-root "$APPIMAGE"
+          rm -rf squashfs-root /tmp/aitools
+          test -f "$APPIMAGE.zsync"
+
+          # 二进制已变，原签名失效：用 Tauri 签名密钥重新签名
+          rm -f "$APPIMAGE.sig"
+          npx tauri signer sign --app-version "${GITHUB_REF_NAME#v}" "$APPIMAGE"
+          test -f "$APPIMAGE.sig"
+
+          # 替换发布资产：新 AppImage + .zsync + 新签名
+          gh release upload "${{ github.ref_name }}" "$APPIMAGE" "$APPIMAGE.zsync" "$APPIMAGE.sig" --clobber
+
+          # latest.json 里 Linux 条目的签名同步为新签名（其值为 .sig 文件原文）
+          gh release download "${{ github.ref_name }}" -p "latest.json" -D /tmp/latest-json
+          python3 - "$APPIMAGE.sig" <<'PYEOF'
+          import json, sys
+          sig = open(sys.argv[1]).read()
+          p = "/tmp/latest-json/latest.json"
+          d = json.load(open(p))
+          for key in ("linux-x86_64", "linux-x86_64-appimage"):
+              if key in d["platforms"]:
+                  d["platforms"][key]["signature"] = sig
+          json.dump(d, open(p, "w"), indent=2, ensure_ascii=False)
+          print("latest.json signatures updated")
+          PYEOF
+          gh release upload "${{ github.ref_name }}" /tmp/latest-json/latest.json --clobber
+          echo "AppImage update info embedded, zsync published, signatures refreshed"

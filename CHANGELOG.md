@@ -2,6 +2,13 @@
 
 本项目的所有重要变更都会记录在这里。版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.2] - 2026-10-03
+
+### 新增
+
+- **AppImage 更新信息**：发布流程现为 AppImage 嵌入 update info（`gh-releases-zsync`），并随包发布 `.zsync` 文件，支持 AppImageUpdate 等工具增量更新。此前 AppImage 官方目录复检（#7429）曾提示该缺失（warning）。
+- 为嵌入更新信息，AppImage 在构建后经 appimagetool 重新打包（`.DirIcon` 等完整保留），并用 Tauri 签名密钥重新签名；`latest.json` 中 Linux 条目的签名同步更新，内置自动更新不受影响。
+
 ## [0.5.1] - 2026-10-03
 
 ### 新增
