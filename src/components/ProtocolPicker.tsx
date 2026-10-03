@@ -1,3 +1,4 @@
+import { t } from 'i18next';
 import { ProtocolId } from '../ipc/types';
 import { isValidNodeName, isValidSni, MAX_NODE_NAME_LENGTH } from '../lib';
 import { Badge, Card, Callout, Field, inputClass } from './ui';
@@ -42,25 +43,25 @@ const protocolCards: Array<{
   {
     id: 'vless-reality',
     title: 'VLESS Reality',
-    subtitle: '更通用，适合主流客户端和常规 TCP 场景。',
-    transport: 'TCP',
-    firewall: '云防火墙 / 安全组放行 TCP 端口',
-    scenario: '主流客户端与常规网络环境，兼容性优先',
+    subtitle: t('protocolPicker.vlessSubtitle'),
+    transport: t('protocolPicker.transportTcp'),
+    firewall: t('protocolPicker.vlessFirewall'),
+    scenario: t('protocolPicker.vlessScenario'),
   },
   {
     id: 'hysteria2',
     title: 'Hysteria 2',
-    subtitle: '偏重高吞吐和弱网表现，配置更直接。',
-    transport: 'UDP（QUIC）',
-    firewall: '云防火墙 / 安全组必须放行 UDP 端口',
-    scenario: '高吞吐、弱网与移动网络环境',
+    subtitle: t('protocolPicker.hysteria2Subtitle'),
+    transport: t('protocolPicker.transportUdpQuic'),
+    firewall: t('protocolPicker.hysteria2Firewall'),
+    scenario: t('protocolPicker.hysteria2Scenario'),
   },
 ];
 
 const comparisonRows: Array<{ label: string; pick: (card: (typeof protocolCards)[number]) => string }> = [
-  { label: '传输层', pick: (card) => card.transport },
-  { label: '防火墙要求', pick: (card) => card.firewall },
-  { label: '适用场景', pick: (card) => card.scenario },
+  { label: t('protocolPicker.rowTransport'), pick: (card) => card.transport },
+  { label: t('protocolPicker.rowFirewall'), pick: (card) => card.firewall },
+  { label: t('protocolPicker.rowScenario'), pick: (card) => card.scenario },
 ];
 
 /** 右上角选中对勾（与档案卡统一的选择语言） */
@@ -93,32 +94,32 @@ export default function ProtocolPicker({ value, onChange }: ProtocolPickerProps)
   const minPort = 1;
   const portError =
     !Number.isInteger(value.port) || value.port < minPort || value.port > 65535
-      ? '监听端口必须是 1–65535 之间的整数'
+      ? t('protocolPicker.errorPortRange')
       : undefined;
   const sniError =
     value.protocol === 'vless-reality' && !isValidSni(value.sni)
-      ? 'SNI 必须是有效域名，例如 www.microsoft.com'
+      ? t('protocolPicker.errorSniInvalid')
       : undefined;
   const nodeNameError =
     value.nodeName.trim() && !isValidNodeName(value.nodeName)
-      ? `节点名称不能超过 ${MAX_NODE_NAME_LENGTH} 个字符`
+      ? t('protocolPicker.errorNodeNameTooLong', { max: MAX_NODE_NAME_LENGTH })
       : undefined;
 
   return (
     <Card padding="lg">
       <div className="border-b border-surface-border pb-4 dark:border-surface-700">
         <h2 className="text-base font-semibold text-surface-800 dark:text-surface-100">
-          命名节点并选择协议
+          {t('protocolPicker.title')}
         </h2>
         <p className="mt-1 text-sm text-surface-500 dark:text-surface-400">
-          节点名称独立于 VPS 名称，可以在同一台机器上部署多个协议实例。
+          {t('protocolPicker.subtitle')}
         </p>
       </div>
 
       <div className="mt-6 grid gap-5 md:grid-cols-2">
         <Field
-          label="节点名称"
-          hint="这是客户端看到的节点名称，不会覆盖 VPS 卡片名称。"
+          label={t('protocolPicker.nodeNameLabel')}
+          hint={t('protocolPicker.nodeNameHint')}
           error={nodeNameError}
           required
         >
@@ -127,16 +128,16 @@ export default function ProtocolPicker({ value, onChange }: ProtocolPickerProps)
             value={value.nodeName}
             maxLength={MAX_NODE_NAME_LENGTH}
             onChange={(event) => onChange({ ...value, nodeName: event.target.value })}
-            placeholder="例如：主线路 VLESS / 游戏专用 Hysteria2"
+            placeholder={t('protocolPicker.nodeNamePlaceholder')}
           />
         </Field>
 
         <Field
-          label="监听端口"
+          label={t('protocolPicker.portLabel')}
           hint={
             value.protocol === 'vless-reality'
-              ? 'VLESS Reality 建议优先使用 443；如被占用再换其它未占用 TCP 端口。'
-              : '建议使用 10000-60000 之间的未占用 UDP 端口。'
+              ? t('protocolPicker.portHintVless')
+              : t('protocolPicker.portHintHy2')
           }
           error={portError}
           required
@@ -154,9 +155,8 @@ export default function ProtocolPicker({ value, onChange }: ProtocolPickerProps)
         </Field>
       </div>
 
-      <Callout variant="info" title="命名规则已拆分" className="mt-6">
-        VPS 名称用于分组和复用登录资料，节点名称只描述当前协议实例。你可以在同一台 VPS
-        下创建多个不同名称的节点。
+      <Callout variant="info" title={t('protocolPicker.namingCalloutTitle')} className="mt-6">
+        {t('protocolPicker.namingCalloutBody')}
       </Callout>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
@@ -187,7 +187,9 @@ export default function ProtocolPicker({ value, onChange }: ProtocolPickerProps)
               <div className="mt-3 flex flex-wrap gap-2">
                 <Badge variant="neutral">{card.transport}</Badge>
                 <Badge variant={card.id === 'hysteria2' ? 'warning' : 'info'}>
-                  {card.id === 'hysteria2' ? '需放行 UDP' : '需放行 TCP'}
+                  {card.id === 'hysteria2'
+                    ? t('protocolPicker.badgeAllowUdp')
+                    : t('protocolPicker.badgeAllowTcp')}
                 </Badge>
               </div>
             </button>
@@ -198,14 +200,14 @@ export default function ProtocolPicker({ value, onChange }: ProtocolPickerProps)
       {/* 两协议逐项对照（同一 protocolCards 数据源渲染，选中列高亮） */}
       <div className="mt-4 overflow-hidden rounded-card border border-surface-border dark:border-surface-700">
         <table className="w-full text-sm">
-          <caption className="sr-only">VLESS Reality 与 Hysteria 2 协议对比</caption>
+          <caption className="sr-only">{t('protocolPicker.comparisonCaption')}</caption>
           <thead>
             <tr className="bg-surface-50 text-left dark:bg-surface-900">
               <th
                 scope="col"
                 className="w-24 px-4 py-2.5 text-xs font-medium text-surface-500 dark:text-surface-400"
               >
-                对比项
+                {t('protocolPicker.comparisonHeader')}
               </th>
               {protocolCards.map((card) => (
                 <th
@@ -218,7 +220,7 @@ export default function ProtocolPicker({ value, onChange }: ProtocolPickerProps)
                   }`}
                 >
                   {card.title}
-                  {value.protocol === card.id ? '（当前选择）' : ''}
+                  {value.protocol === card.id ? t('protocolPicker.currentSelectionSuffix') : ''}
                 </th>
               ))}
             </tr>
@@ -260,7 +262,7 @@ export default function ProtocolPicker({ value, onChange }: ProtocolPickerProps)
             <div className="flex flex-1 flex-col gap-4">
               <Field
                 label="Reality SNI"
-                hint="仅 VLESS Reality 需要，建议使用常见站点域名。"
+                hint={t('protocolPicker.sniHint')}
                 error={sniError}
                 required
               >
@@ -280,24 +282,25 @@ export default function ProtocolPicker({ value, onChange }: ProtocolPickerProps)
                   ))}
                 </datalist>
               </Field>
-              <Callout variant="info" title="部署后自动验证" className="mt-auto">
-                程序会在部署完成后自动从当前机器验证目标 TCP 端口是否真的能从公网连通。
+              <Callout variant="info" title={t('protocolPicker.autoVerifyTitle')} className="mt-auto">
+                {t('protocolPicker.autoVerifyBody')}
               </Callout>
             </div>
           ) : (
-            <Callout variant="warning" title="Hysteria 2 配置说明" className="flex-1">
-              当前协议不需要 SNI，但云厂商安全组必须放行对应 UDP
-              端口，否则客户端会直接无法连接。
+            <Callout variant="warning" title={t('protocolPicker.hy2NoteTitle')} className="flex-1">
+              {t('protocolPicker.hy2NoteBody')}
             </Callout>
           )}
         </div>
 
         <Card padding="md" className="min-h-[11.5rem] bg-surface-50 dark:bg-surface-900">
-          <p className="text-sm font-semibold text-surface-800 dark:text-surface-100">部署建议</p>
+          <p className="text-sm font-semibold text-surface-800 dark:text-surface-100">
+            {t('protocolPicker.deployTipsTitle')}
+          </p>
           <ul className="mt-3 space-y-2 text-sm text-surface-500 dark:text-surface-400">
-            <li>使用不同节点名称区分用途，例如主线路、备用线路、UDP 专线。</li>
-            <li>VLESS Reality 优先使用 443 或 8443，Hysteria2 建议使用高位 UDP 端口。</li>
-            <li>如果更换协议或端口，建议同时更新云安全组规则。</li>
+            <li>{t('protocolPicker.tip1')}</li>
+            <li>{t('protocolPicker.tip2')}</li>
+            <li>{t('protocolPicker.tip3')}</li>
           </ul>
         </Card>
       </div>

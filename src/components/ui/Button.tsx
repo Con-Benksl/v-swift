@@ -1,5 +1,6 @@
 import { forwardRef } from 'react';
 import type { ButtonHTMLAttributes } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Spinner } from './Spinner';
 
 /** Button 视觉变体（视觉唯一定义在 index.css 的 .btn-* 全局类，本组件为薄包装） */
@@ -60,6 +61,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   },
   ref,
 ) {
+  const { t } = useTranslation();
   return (
     <button
       ref={ref}
@@ -69,7 +71,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       className={`${variantClass[variant]} ${sizeClass[size]} ${className}`.replace(/\s+/g, ' ').trim()}
       {...rest}
     >
-      {loading ? <Spinner size={size === 'sm' ? 'sm' : 'md'} tone="inherit" label="处理中" /> : null}
+      {loading ? <Spinner size={size === 'sm' ? 'sm' : 'md'} tone="inherit" label={t('button.processing')} /> : null}
       {loading && loadingText ? loadingText : children}
     </button>
   );

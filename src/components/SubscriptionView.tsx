@@ -1,4 +1,5 @@
 import { useId, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { openExternal } from '../ipc';
 import { NodeRecord } from '../ipc/types';
 import { protocolLabel, statusLabel } from '../lib';
@@ -175,6 +176,7 @@ export default function SubscriptionView({
   managedUri,
   managedQrSvg,
 }: SubscriptionViewProps) {
+  const { t } = useTranslation();
   const toast = useToast();
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [showUri, setShowUri] = useState(false);
@@ -191,16 +193,16 @@ export default function SubscriptionView({
         : 'bg-danger-50 text-danger-600 dark:bg-danger-500/10 dark:text-danger-400';
   const statusTitle =
     node.status === 'active'
-      ? `节点「${node.name}」运行中`
+      ? t('subscriptionView.statusRunning', { name: node.name })
       : node.status === 'unknown'
-        ? `节点「${node.name}」状态待确认`
-        : `节点「${node.name}」已卸载`;
+        ? t('subscriptionView.statusPending', { name: node.name })
+        : t('subscriptionView.statusUninstalled', { name: node.name });
   const statusDescription =
     node.status === 'active'
-      ? '订阅信息已生成，可扫码或复制导入客户端；URI 默认掩码展示，点击可展开查看。'
+      ? t('subscriptionView.descActive')
       : node.status === 'unknown'
-        ? '订阅信息仍可查看，但当前运行状态尚未确认；导入后请先验证客户端连通性。'
-        : '以下内容仅作为历史订阅记录展示；节点已卸载，原有连接不再可用。';
+        ? t('subscriptionView.descUnknown')
+        : t('subscriptionView.descUninstalled');
   const importDisabled = node.status === 'uninstalled';
 
   /** 交给系统打开客户端深链；失败时明确告知，而不是静默无反应。 */
@@ -208,7 +210,7 @@ export default function SubscriptionView({
     try {
       await openExternal(url);
     } catch {
-      toast.error(`无法唤起 ${label}，请确认已安装该客户端，或改用复制 URI 手动导入。`, {
+      toast.error(t('subscriptionView.importFailedToast', { label }), {
         duration: 5000,
       });
     }
@@ -223,7 +225,7 @@ export default function SubscriptionView({
       }, 2000);
       toast.success(successMessage);
     } catch {
-      toast.error('复制失败，请手动复制');
+      toast.error(t('subscriptionView.copyFailedToast'));
     }
   };
 
@@ -253,19 +255,19 @@ export default function SubscriptionView({
       </div>
 
       <div className="mt-6 grid gap-4 md:grid-cols-3">
-        <StatCard label="VPS 名称" value={node.vpsName} />
-        <StatCard label="节点名称" value={node.name} />
-        <StatCard label="接入地址" value={node.host} />
+        <StatCard label={t('subscriptionView.statVpsName')} value={node.vpsName} />
+        <StatCard label={t('subscriptionView.statNodeName')} value={node.name} />
+        <StatCard label={t('subscriptionView.statHost')} value={node.host} />
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         {/* 单节点订阅 */}
         <Card padding="lg">
           <p className="text-sm font-semibold text-surface-800 dark:text-surface-100">
-            单节点订阅
+            {t('subscriptionView.singleNodeTitle')}
           </p>
           <p className="mt-1 text-xs text-surface-500 dark:text-surface-400">
-            扫码导入，或复制下方 URI 手动添加。
+            {t('subscriptionView.singleNodeHint')}
           </p>
           {isSafeQrSvg(qrSvg) ? (
             <div
@@ -274,13 +276,13 @@ export default function SubscriptionView({
             />
           ) : (
             <div className="mx-auto mt-4 flex h-48 w-48 items-center justify-center rounded-card border border-dashed border-surface-border p-3 text-center text-xs text-surface-500 dark:border-surface-700 dark:text-surface-400">
-              二维码不可用，请改用下方 URI 手动导入。
+              {t('subscriptionView.qrUnavailable')}
             </div>
           )}
           <div className="mt-4">
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs font-medium text-surface-500 dark:text-surface-400">
-                订阅 URI
+                {t('subscriptionView.uriLabel')}
               </p>
               <Button
                 variant="ghost"
@@ -289,7 +291,7 @@ export default function SubscriptionView({
                 aria-controls={uriDisclosureId}
                 onClick={() => setShowUri((open) => !open)}
               >
-                {showUri ? '收起' : '展开'}
+                {showUri ? t('subscriptionView.collapseButton') : t('subscriptionView.expandButton')}
               </Button>
             </div>
             <div
@@ -301,20 +303,20 @@ export default function SubscriptionView({
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <Button
                 size="sm"
-                onClick={() => copyUri('uri', uri, '订阅 URI 已复制')}
+                onClick={() => copyUri('uri', uri, t('subscriptionView.copiedUriMessage'))}
                 className="gap-1.5"
               >
                 {copiedKey === 'uri' ? (
                   <>
                     <CopyCheckIcon />
-                    已复制
+                    {t('subscriptionView.copiedButton')}
                   </>
                 ) : (
-                  '复制 URI'
+                  t('subscriptionView.copyUriButton')
                 )}
               </Button>
               <span className="text-xs text-surface-500 dark:text-surface-400">
-                优先使用原始 URI，最不容易导入错参数。
+                {t('subscriptionView.uriTip')}
               </span>
             </div>
           </div>
@@ -324,10 +326,10 @@ export default function SubscriptionView({
           {/* 一键导入客户端 */}
           <Card padding="lg">
             <p className="text-sm font-semibold text-surface-800 dark:text-surface-100">
-              一键导入客户端
+              {t('subscriptionView.importTitle')}
             </p>
             <p className="mt-1 text-xs text-surface-500 dark:text-surface-400">
-              主推荐客户端使用次要按钮样式，其余为轻量入口。
+              {t('subscriptionView.importHint')}
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               {importLinks
@@ -342,7 +344,7 @@ export default function SubscriptionView({
                     className="gap-1.5"
                   >
                     <ClientIcon letter={item.iconLetter} />
-                    导入 {item.label}
+                    {t('subscriptionView.importClientButton', { label: item.label })}
                   </Button>
                 ))}
             </div>
@@ -352,10 +354,10 @@ export default function SubscriptionView({
           {managedUri ? (
             <Card padding="lg" className="border-brand-200 bg-brand-50/60 dark:border-brand-500/30 dark:bg-brand-500/5">
               <p className="text-sm font-semibold text-surface-800 dark:text-surface-100">
-                远程多节点订阅
+                {t('subscriptionView.managedTitle')}
               </p>
               <p className="mt-1 text-xs text-surface-500 dark:text-surface-400">
-                适合 Clash/Mihomo 订阅导入，客户端可显示服务端返回的用量头。
+                {t('subscriptionView.managedHint')}
               </p>
               {isSafeQrSvg(managedQrSvg) ? (
                 <div
@@ -366,7 +368,7 @@ export default function SubscriptionView({
               <div className="mt-4">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs font-medium text-surface-500 dark:text-surface-400">
-                    远程订阅链接
+                    {t('subscriptionView.managedUriLabel')}
                   </p>
                   <Button
                     variant="ghost"
@@ -375,7 +377,9 @@ export default function SubscriptionView({
                     aria-controls={managedUriDisclosureId}
                     onClick={() => setShowManagedUri((open) => !open)}
                   >
-                    {showManagedUri ? '收起' : '展开'}
+                    {showManagedUri
+                      ? t('subscriptionView.collapseButton')
+                      : t('subscriptionView.expandButton')}
                   </Button>
                 </div>
                 <div
@@ -388,16 +392,18 @@ export default function SubscriptionView({
                   <Button
                     variant="secondary"
                     size="sm"
-                    onClick={() => copyUri('managed', managedUri, '远程订阅链接已复制')}
+                    onClick={() =>
+                      copyUri('managed', managedUri, t('subscriptionView.copiedManagedMessage'))
+                    }
                     className="gap-1.5"
                   >
                     {copiedKey === 'managed' ? (
                       <>
                         <CopyCheckIcon />
-                        已复制
+                        {t('subscriptionView.copiedButton')}
                       </>
                     ) : (
-                      '复制远程订阅'
+                      t('subscriptionView.copyManagedButton')
                     )}
                   </Button>
                   <Button
@@ -413,7 +419,7 @@ export default function SubscriptionView({
                     className="gap-1.5"
                   >
                     <ClientIcon letter="C" />
-                    导入 Clash/Mihomo
+                    {t('subscriptionView.importClashButton')}
                   </Button>
                 </div>
               </div>

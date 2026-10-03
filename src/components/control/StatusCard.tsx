@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { SystemStatus } from '../../ipc/control';
 import { formatBytes, formatUptime } from '../../lib';
 import { Card, Skeleton, StatCard } from '../ui';
@@ -89,6 +90,7 @@ interface SystemStatusCardsProps {
 }
 
 export function SystemStatusCards({ status, loading }: SystemStatusCardsProps) {
+  const { t } = useTranslation();
   if (loading) {
     return (
       <div className={STAT_GRID}>
@@ -106,7 +108,7 @@ export function SystemStatusCards({ status, loading }: SystemStatusCardsProps) {
         className="border-dashed text-center shadow-none"
       >
         <p className="text-sm text-surface-500 dark:text-surface-400">
-          选择 VPS 并连接成功后，这里会显示 CPU、内存、磁盘与运行时长。
+          {t('statusCard.emptyHint')}
         </p>
       </Card>
     );
@@ -115,29 +117,33 @@ export function SystemStatusCards({ status, loading }: SystemStatusCardsProps) {
   return (
     <div className={STAT_GRID}>
       <StatCard
-        label="CPU 使用率"
+        label={t('statusCard.cpuLabel')}
         value={`${status.cpuPercent.toFixed(1)}%`}
         icon={<CpuIcon />}
         progress={status.cpuPercent}
       />
       <StatCard
-        label="内存"
+        label={t('statusCard.memoryLabel')}
         value={`${(status.memoryUsed / 1024).toFixed(1)} GB`}
-        subValue={`总计 ${(status.memoryTotal / 1024).toFixed(1)} GB`}
+        subValue={t('statusCard.totalLabel', {
+          value: `${(status.memoryTotal / 1024).toFixed(1)} GB`,
+        })}
         icon={<MemoryIcon />}
         progress={status.memoryTotal > 0 ? (status.memoryUsed / status.memoryTotal) * 100 : 0}
       />
       <StatCard
-        label="磁盘"
+        label={t('statusCard.diskLabel')}
         value={`${(status.diskUsed / (1024 * 1024 * 1024)).toFixed(1)} GB`}
-        subValue={`总计 ${(status.diskTotal / (1024 * 1024 * 1024)).toFixed(1)} GB`}
+        subValue={t('statusCard.totalLabel', {
+          value: `${(status.diskTotal / (1024 * 1024 * 1024)).toFixed(1)} GB`,
+        })}
         icon={<DiskIcon />}
         progress={status.diskUsagePercent}
       />
       <StatCard
-        label="运行时长"
+        label={t('statusCard.uptimeLabel')}
         value={formatUptime(status.uptimeSeconds)}
-        subValue="自上次启动以来"
+        subValue={t('statusCard.uptimeSub')}
         icon={<ClockIcon />}
       />
     </div>
@@ -151,6 +157,7 @@ interface NetworkTrafficCardProps {
 }
 
 export function NetworkTrafficCard({ bytesReceived, bytesSent, loading }: NetworkTrafficCardProps) {
+  const { t } = useTranslation();
   if (loading) {
     return (
       <div className="grid gap-4 sm:grid-cols-2">
@@ -163,9 +170,9 @@ export function NetworkTrafficCard({ bytesReceived, bytesSent, loading }: Networ
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       <StatCard
-        label="累计下行"
+        label={t('statusCard.downLabel')}
         value={formatBytes(bytesReceived)}
-        subValue="自统计起始以来接收"
+        subValue={t('statusCard.downSub')}
         icon={
           <span className="text-info-500 dark:text-info-400">
             <DownloadIcon />
@@ -173,9 +180,9 @@ export function NetworkTrafficCard({ bytesReceived, bytesSent, loading }: Networ
         }
       />
       <StatCard
-        label="累计上行"
+        label={t('statusCard.upLabel')}
         value={formatBytes(bytesSent)}
-        subValue="自统计起始以来发送"
+        subValue={t('statusCard.upSub')}
         icon={
           <span className="text-info-500 dark:text-info-400">
             <UploadIcon />

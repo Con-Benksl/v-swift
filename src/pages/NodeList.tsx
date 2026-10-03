@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
+import { useTranslation } from 'react-i18next';
 import UpdateControl from '../components/UpdateControl';
 import {
   Badge,
@@ -105,6 +106,7 @@ function GroupSkeleton() {
 }
 
 export default function NodeList() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const {
     active: deploymentActive,
@@ -147,7 +149,7 @@ export default function NodeList() {
       })
       .catch((err) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : '加载节点列表失败');
+          setError(err instanceof Error ? err.message : t('nodeList.loadFailed'));
         }
       })
       .finally(() => {
@@ -182,7 +184,7 @@ export default function NodeList() {
     const nextHost = editingHost.trim();
     if (!nextHost) {
       setHostUpdateState('err');
-      setHostUpdateError('VPS IP 或域名不能为空');
+      setHostUpdateError(t('nodeList.hostRequired'));
       return;
     }
 
@@ -254,9 +256,9 @@ export default function NodeList() {
   return (
     <PageShell width="xl">
       <SectionHeader
-        eyebrow="总览"
-        title="VPS 节点列表"
-        description="同一台 VPS 会收拢到同一张卡片里，便于复用登录资料并管理多个协议实例。"
+        eyebrow={t('nodeList.overviewEyebrow')}
+        title={t('nodeList.title')}
+        description={t('nodeList.description')}
         actions={
           <>
             {/* UpdateControl 由外壳代理改造为次要样式，此处仅提供页头挂载位 */}
@@ -265,9 +267,9 @@ export default function NodeList() {
               variant="primary"
               onClick={() => navigate('/new')}
               disabled={deploymentActive}
-              title={deploymentActive ? '远端任务进行中，请稍候' : undefined}
+              title={deploymentActive ? t('nodeList.remoteTaskTitle') : undefined}
             >
-              新建节点
+              {t('nodeList.newNode')}
             </Button>
           </>
         }
@@ -280,7 +282,7 @@ export default function NodeList() {
             <GroupSkeleton />
           </div>
         ) : error ? (
-          <Callout variant="danger" title="节点列表加载失败">
+          <Callout variant="danger" title={t('nodeList.loadFailedTitle')}>
             <p>{error}</p>
             <div className="mt-3">
               <Button
@@ -288,7 +290,7 @@ export default function NodeList() {
                 size="sm"
                 onClick={() => setRefreshTick((value) => value + 1)}
               >
-                重试
+                {t('nodeList.retry')}
               </Button>
             </div>
           </Callout>
@@ -298,14 +300,14 @@ export default function NodeList() {
               <EmptyServerIcon />
             </div>
             <h2 className="mt-4 text-lg font-semibold text-surface-800 dark:text-surface-100">
-              还没有任何节点
+              {t('nodeList.emptyTitle')}
             </h2>
             <p className="mt-2 text-sm text-surface-500 dark:text-surface-400">
-              先连接一台 VPS，部署第一个协议实例后会自动出现在这里。
+              {t('nodeList.emptyHint')}
             </p>
             <div className="mt-5 flex justify-center">
               <Button variant="primary" onClick={() => navigate('/new')}>
-                去创建第一个节点
+                {t('nodeList.emptyCta')}
               </Button>
             </div>
           </Card>
@@ -323,7 +325,7 @@ export default function NodeList() {
                         <h2 className="break-words text-lg font-semibold text-surface-800 dark:text-surface-100">
                           {group.vpsName}
                         </h2>
-                        <Badge variant="neutral">{group.nodes.length} 个节点</Badge>
+                        <Badge variant="neutral">{t('nodeList.nodeCount', { count: group.nodes.length })}</Badge>
                       </div>
                       <p className="mt-2 break-all text-sm text-surface-500 dark:text-surface-400">
                         {group.host}:{group.sshPort} · {group.sshUser}
@@ -332,13 +334,13 @@ export default function NodeList() {
                     <div className="flex flex-wrap items-center gap-3">
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div className="rounded-control bg-surface-100 px-4 py-3 dark:bg-surface-900">
-                          <p className="text-xs text-surface-500 dark:text-surface-400">最近变更</p>
+                          <p className="text-xs text-surface-500 dark:text-surface-400">{t('nodeList.recentChange')}</p>
                           <p className="mt-1 text-sm font-medium text-surface-700 dark:text-surface-200">
                             {formatRelativeTime(group.latestCreatedAt)}
                           </p>
                         </div>
                         <div className="rounded-control bg-surface-100 px-4 py-3 dark:bg-surface-900">
-                          <p className="text-xs text-surface-500 dark:text-surface-400">协议类型</p>
+                          <p className="text-xs text-surface-500 dark:text-surface-400">{t('nodeList.protocolType')}</p>
                           <div className="mt-1.5 flex flex-wrap gap-1.5">
                             {protocols.map((protocol) => (
                               <Badge key={protocol} variant="info">
@@ -356,9 +358,9 @@ export default function NodeList() {
                             navigate(`/control?vpsId=${encodeURIComponent(vpsId(group))}`)
                           }
                           disabled={deploymentActive}
-                          title={deploymentActive ? '远端任务进行中，请稍候' : undefined}
+                          title={deploymentActive ? t('nodeList.remoteTaskTitle') : undefined}
                         >
-                          控制面板
+                          {t('nodeList.openControlPanel')}
                         </Button>
                         <Button
                           variant="ghost"
@@ -366,7 +368,7 @@ export default function NodeList() {
                           onClick={() => startHostEdit(group)}
                           disabled={deploymentActive}
                         >
-                          修改 IP
+                          {t('nodeList.editIp')}
                         </Button>
                       </div>
                     </div>
@@ -382,7 +384,7 @@ export default function NodeList() {
                       {isEditing ? (
                         <div className="rounded-card border border-surface-border bg-surface-50 p-4 dark:border-surface-700 dark:bg-surface-900">
                           <Field
-                            label="新的服务器 IP / 域名"
+                            label={t('nodeList.newHostLabel')}
                             error={
                               hostUpdateState === 'err' && hostUpdateError
                                 ? hostUpdateError
@@ -414,16 +416,16 @@ export default function NodeList() {
                               onClick={cancelHostEdit}
                               disabled={hostUpdateState === 'saving'}
                             >
-                              取消
+                              {t('nodeList.cancel')}
                             </Button>
                             <Button
                               variant="primary"
                               size="sm"
                               onClick={() => saveHostEdit(group)}
                               loading={hostUpdateState === 'saving'}
-                              loadingText="保存中…"
+                              loadingText={t('nodeList.saving')}
                             >
-                              保存 IP
+                              {t('nodeList.saveIp')}
                             </Button>
                           </div>
                         </div>
@@ -452,11 +454,10 @@ export default function NodeList() {
                                 </Badge>
                               </div>
                               <p className="mt-2 text-sm text-surface-500 dark:text-surface-400">
-                                {port !== undefined ? `服务端口 ${port}` : '端口未记录'} · 创建于{' '}
-                                {formatRelativeTime(node.createdAt)}
+                                {port !== undefined ? t('nodeList.servicePort', { port }) : t('nodeList.portUnknown')} · {t('nodeList.createdAt', { time: formatRelativeTime(node.createdAt) })}
                               </p>
                               <p className="mt-1.5 font-mono text-xs text-surface-500 dark:text-surface-400">
-                                <span className="select-none">节点 ID：</span>
+                                <span className="select-none">{t('nodeList.nodeIdLabel')}</span>
                                 <span className="select-text break-all">{node.id}</span>
                               </p>
                             </div>
@@ -464,10 +465,10 @@ export default function NodeList() {
                               type="button"
                               onClick={() => navigate(`/nodes/${node.id}`)}
                               disabled={deploymentActive}
-                              title={deploymentActive ? '远端任务进行中，请稍候' : undefined}
+                              title={deploymentActive ? t('nodeList.remoteTaskTitle') : undefined}
                               className="inline-flex shrink-0 items-center gap-1 self-start rounded-control px-2 py-1.5 text-sm font-medium text-brand-600 transition-colors duration-150 hover:bg-brand-50 hover:text-brand-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent dark:text-brand-300 dark:hover:bg-brand-900/40 dark:hover:text-brand-200 lg:self-center"
                             >
-                              查看详情
+                              {t('nodeList.viewDetail')}
                               <span className="transition-transform duration-150 motion-safe:group-hover:translate-x-0.5">
                                 <ChevronRightIcon />
                               </span>

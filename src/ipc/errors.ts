@@ -9,6 +9,8 @@
  *
  * This helper normalizes all of them and returns a human-readable Chinese string.
  */
+
+import { t } from 'i18next';
 function normalizeIpcError(error: unknown): { kind: string; detail: string } {
   let kind = '';
   let detail = '';
@@ -76,21 +78,24 @@ export function mapConnectionError(error: unknown): string {
   const { kind, detail } = normalizeIpcError(error);
   const haystack = `${kind} ${detail}`;
   if (kind === 'AuthFailed' || haystack.includes('AuthFailed')) {
-    return '认证失败，请检查用户名、密码或私钥。';
+    return t('ipcErrors.authFailed');
   }
   if (kind === 'HostUnreachable' || haystack.includes('HostUnreachable')) {
-    return `目标主机不可达：${detail || '请检查 IP、端口和安全组。'}`;
+    return t('ipcErrors.hostUnreachable', { detail: detail || t('ipcErrors.hostUnreachableHint') });
   }
   if (kind === 'NetworkTimeout' || haystack.includes('NetworkTimeout')) {
-    return '连接超时：服务器在 15 秒内没有响应（可能下线、端口被封或路由不通）。';
+    return t('ipcErrors.networkTimeout');
   }
   if (kind === 'SshHostKey' || haystack.includes('SshHostKey')) {
     const unknownKey = extractUnknownSshHostKey(error);
     if (unknownKey) {
-      return `首次连接尚未信任该服务器（${unknownKey.algorithm} ${unknownKey.fingerprint}）。`;
+      return t('ipcErrors.untrustedHostKey', {
+        algorithm: unknownKey.algorithm,
+        fingerprint: unknownKey.fingerprint,
+      });
     }
-    return `SSH 主机密钥校验失败：${detail || '服务器身份和已信任记录不一致。'}`;
+    return t('ipcErrors.hostKeyMismatch', { detail: detail || t('ipcErrors.hostKeyMismatchHint') });
   }
   if (kind && detail) return `${kind}: ${detail}`;
-  return detail || kind || '连接失败';
+  return detail || kind || t('ipcErrors.connectionFailed');
 }

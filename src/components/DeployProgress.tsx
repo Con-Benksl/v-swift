@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { t } from 'i18next';
 import { deployNode } from '../ipc';
 import { DeployEvent, DeployParams, NodeRecord } from '../ipc/types';
 import { extractErrorMessage, formatBytes, protocolLabel } from '../lib';
@@ -15,14 +16,14 @@ interface DeployProgressProps {
 }
 
 const stepLabels: Record<string, string> = {
-  detect_os: '识别系统',
-  prepare: '准备环境',
-  install: '安装核心组件',
-  configure: '写入配置',
-  firewall: '开放防火墙',
-  reachability: '验证公网连通性',
-  subscription: '配置托管订阅',
-  done: '完成部署',
+  detect_os: t('deployProgress.stepDetectOs'),
+  prepare: t('deployProgress.stepPrepare'),
+  install: t('deployProgress.stepInstall'),
+  configure: t('deployProgress.stepConfigure'),
+  firewall: t('deployProgress.stepFirewall'),
+  reachability: t('deployProgress.stepReachability'),
+  subscription: t('deployProgress.stepSubscription'),
+  done: t('deployProgress.stepDone'),
 };
 
 const baseSteps = ['detect_os', 'prepare', 'install', 'configure', 'firewall'] as const;
@@ -30,11 +31,11 @@ const baseSteps = ['detect_os', 'prepare', 'install', 'configure', 'firewall'] a
 type DownloadStage = 'connecting' | 'transferring' | 'waiting' | 'extracting' | 'complete';
 
 const downloadStageLabels: Record<DownloadStage, string> = {
-  connecting: '建立连接',
-  transferring: '传输中',
-  waiting: '等待数据',
-  extracting: '解压安装',
-  complete: '下载完成',
+  connecting: t('deployProgress.downloadStageConnecting'),
+  transferring: t('deployProgress.downloadStageTransferring'),
+  waiting: t('deployProgress.downloadStageWaiting'),
+  extracting: t('deployProgress.downloadStageExtracting'),
+  complete: t('deployProgress.downloadStageComplete'),
 };
 
 interface DownloadState {
@@ -77,7 +78,10 @@ function summarizeLogs(logLines: string[]) {
       downloadState = {
         artifact: downloadState?.artifact ?? 'Xray',
         attempt: `${attempt[1]}/${attempt[2]}`,
-        detail: `下载尝试 ${attempt[1]}/${attempt[2]}`,
+        detail: t('deployProgress.downloadAttempt', {
+          current: attempt[1],
+          total: attempt[2],
+        }),
         stage: downloadState?.stage ?? 'connecting',
       };
       continue;
@@ -88,7 +92,9 @@ function summarizeLogs(logLines: string[]) {
       downloadState = {
         artifact: downloadState?.artifact ?? 'Xray',
         attempt: downloadState?.attempt,
-        detail: `已下载 ${formatReceivedText(received[1])}`,
+        detail: t('deployProgress.downloadedBytes', {
+          bytes: formatReceivedText(received[1]),
+        }),
         stage: 'transferring',
       };
       continue;
@@ -99,7 +105,9 @@ function summarizeLogs(logLines: string[]) {
       downloadState = {
         artifact: downloadState?.artifact ?? 'Xray',
         attempt: downloadState?.attempt,
-        detail: `已下载 ${formatReceivedText(waiting[1])}，等待更多数据`,
+        detail: t('deployProgress.downloadedBytesWaiting', {
+          bytes: formatReceivedText(waiting[1]),
+        }),
         stage: 'waiting',
       };
       continue;
@@ -109,7 +117,7 @@ function summarizeLogs(logLines: string[]) {
       downloadState = {
         artifact: downloadState?.artifact ?? 'Xray',
         attempt: downloadState?.attempt,
-        detail: '正在建立下载连接',
+        detail: t('deployProgress.downloadConnecting'),
         stage: 'connecting',
       };
       continue;
@@ -119,7 +127,7 @@ function summarizeLogs(logLines: string[]) {
       downloadState = {
         artifact: 'Xray',
         attempt: downloadState?.attempt,
-        detail: '下载完成，正在解压安装包',
+        detail: t('deployProgress.downloadExtracting'),
         stage: 'extracting',
       };
       continue;
@@ -132,7 +140,7 @@ function summarizeLogs(logLines: string[]) {
       downloadState = {
         artifact: normalized.startsWith('Xray') ? 'Xray' : 'Hysteria2',
         attempt: downloadState?.attempt,
-        detail: '下载并安装完成',
+        detail: t('deployProgress.downloadComplete'),
         stage: 'complete',
       };
       continue;
@@ -230,7 +238,7 @@ export default function DeployProgress({
         // 没有拿到后端错误事件时，用最近一次真实步骤定位失败点；
         // 一步都没开始就失败时归到首步。
         const step = latestStepRef.current || baseSteps[0];
-        const message = extractErrorMessage(error, '部署失败（无详细信息）');
+        const message = extractErrorMessage(error, t('deployProgress.deployFailedGeneric'));
         onEvent({ kind: 'error', step, message });
       });
   }, [onComplete, onEvent, params]);
@@ -261,10 +269,10 @@ export default function DeployProgress({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="text-base font-semibold text-surface-800 dark:text-surface-100">
-              部署进度
+              {t('deployProgress.title')}
             </h2>
             <p className="mt-1 text-sm text-surface-500 dark:text-surface-400">
-              正在远程安装并生成订阅信息，过程中不要关闭窗口。
+              {t('deployProgress.subtitle')}
             </p>
           </div>
           <Badge variant="info">{protocolLabel(params.protocol)}</Badge>
@@ -273,9 +281,12 @@ export default function DeployProgress({
         {/* 全局进度条：已完成 / 总步数 */}
         <div className="mt-4">
           <div className="flex items-center justify-between text-xs text-surface-500 dark:text-surface-400">
-            <span>总进度</span>
+            <span>{t('deployProgress.overallProgress')}</span>
             <span>
-              已完成 {completedCount} / {orderedSteps.length} 步
+              {t('deployProgress.stepsCompleted', {
+                completed: completedCount,
+                total: orderedSteps.length,
+              })}
             </span>
           </div>
           <div
@@ -284,7 +295,7 @@ export default function DeployProgress({
             aria-valuenow={progressPercent}
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-label={`部署总进度 ${progressPercent}%`}
+            aria-label={t('deployProgress.progressAriaLabel', { percent: progressPercent })}
           >
             <div
               className="h-full rounded-full bg-gradient-to-r from-brand-500 to-brand-600 transition-[width] duration-500 ease-out dark:from-brand-400 dark:to-brand-500"
@@ -329,7 +340,11 @@ export default function DeployProgress({
                     ) : isCompleted ? (
                       <CheckIcon className="h-3.5 w-3.5" />
                     ) : isCurrent ? (
-                      <Spinner size="sm" tone="inherit" label={`${stepLabels[step]}进行中`} />
+                      <Spinner
+                        size="sm"
+                        tone="inherit"
+                        label={t('deployProgress.stepSpinnerLabel', { step: stepLabels[step] })}
+                      />
                     ) : (
                       index + 1
                     )}
@@ -346,12 +361,12 @@ export default function DeployProgress({
                     </p>
                     <p className="text-xs text-surface-500 dark:text-surface-400">
                       {isFailed
-                        ? '失败'
+                        ? t('deployProgress.stepStatusFailed')
                         : isCompleted
-                          ? '已完成'
+                          ? t('deployProgress.stepStatusCompleted')
                           : isCurrent
-                            ? '进行中'
-                            : '等待中'}
+                            ? t('deployProgress.stepStatusInProgress')
+                            : t('deployProgress.stepStatusPending')}
                     </p>
                   </div>
                 </li>
@@ -362,24 +377,37 @@ export default function DeployProgress({
 
         <div className="space-y-4">
           <Card padding="md">
-            <p className="text-xs text-surface-500 dark:text-surface-400">当前步骤</p>
+            <p className="text-xs text-surface-500 dark:text-surface-400">
+              {t('deployProgress.currentStepLabel')}
+            </p>
             <p className="mt-1 text-base font-semibold text-surface-800 dark:text-surface-100">
-              {currentStep ? (stepLabels[currentStep] ?? `执行中：${currentStep}`) : '等待开始'}
+              {currentStep
+                ? (stepLabels[currentStep] ??
+                  t('deployProgress.stepInProgressFallback', { step: currentStep }))
+                : t('deployProgress.waitingToStart')}
             </p>
             {errorMsg ? (
-              <Callout variant="danger" title="部署失败" className="mt-4">
+              <Callout variant="danger" title={t('deployProgress.deployFailedTitle')} className="mt-4">
                 <p>{errorMsg}</p>
                 <div className="mt-3">
                   <Button variant="danger" size="sm" onClick={onRetry}>
-                    重新部署
+                    {t('deployProgress.retryButton')}
                   </Button>
                 </div>
               </Callout>
             ) : (
               <p className="mt-3 rounded-control bg-surface-50 px-3 py-2.5 text-sm text-surface-500 dark:bg-surface-900 dark:text-surface-400">
                 {params.credential
-                  ? `正在连接 ${params.credential.host}:${params.credential.port}，VPS 名称为 ${params.vpsName}，节点名称为 ${params.nodeName}。`
-                  : `正在复用已保存的 VPS「${params.vpsName}」进行部署，节点名称为 ${params.nodeName}。`}
+                  ? t('deployProgress.connectingWithCredential', {
+                      host: params.credential.host,
+                      port: params.credential.port,
+                      vpsName: params.vpsName,
+                      nodeName: params.nodeName,
+                    })
+                  : t('deployProgress.connectingWithSavedProfile', {
+                      vpsName: params.vpsName,
+                      nodeName: params.nodeName,
+                    })}
               </p>
             )}
           </Card>
@@ -389,7 +417,9 @@ export default function DeployProgress({
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-surface-800 dark:text-surface-100">
-                    正在下载 {downloadState.artifact}
+                    {t('deployProgress.downloadingArtifact', {
+                      artifact: downloadState.artifact,
+                    })}
                   </p>
                   <p className="mt-1 text-sm text-surface-500 dark:text-surface-400">
                     {downloadState.detail}
@@ -397,7 +427,9 @@ export default function DeployProgress({
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {downloadState.attempt ? (
-                    <Badge variant="neutral">第 {downloadState.attempt} 次</Badge>
+                    <Badge variant="neutral">
+                      {t('deployProgress.attemptNumber', { attempt: downloadState.attempt })}
+                    </Badge>
                   ) : null}
                   <Badge variant="info">{downloadStageLabels[downloadState.stage]}</Badge>
                 </div>
@@ -411,13 +443,13 @@ export default function DeployProgress({
                 />
               </div>
               <p className="mt-2 text-xs text-surface-500 dark:text-surface-400">
-                下载心跳已折叠显示，不再逐行写入日志。
+                {t('deployProgress.downloadNote')}
               </p>
             </Card>
           ) : null}
 
           {warnings.length > 0 ? (
-            <Callout variant="warning" title="部署警告">
+            <Callout variant="warning" title={t('deployProgress.warningsTitle')}>
               <ul className="space-y-1.5">
                 {warnings.map((warning, index) => (
                   <li key={`${index}-${warning.step}`}>
@@ -440,10 +472,12 @@ export default function DeployProgress({
             >
               <div>
                 <p className="text-sm font-semibold text-surface-800 dark:text-surface-100">
-                  部署日志
+                  {t('deployProgress.deployLogTitle')}
                 </p>
                 <p className="text-xs text-surface-500 dark:text-surface-400">
-                  {detailsOpen ? '点击收起后台逐行输出' : '展开查看后台逐行输出'}
+                  {detailsOpen
+                    ? t('deployProgress.logCollapseHint')
+                    : t('deployProgress.logExpandHint')}
                 </p>
               </div>
               <svg
@@ -470,8 +504,8 @@ export default function DeployProgress({
                   ) : (
                     <div className="text-surface-500">
                       {downloadState
-                        ? '下载日志已折叠，等待后续部署输出。'
-                        : '暂无日志输出，等待远程任务开始。'}
+                        ? t('deployProgress.logFoldedWaiting')
+                        : t('deployProgress.logNoOutput')}
                     </div>
                   )}
                 </div>

@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { OsInfo } from '../../ipc/types';
 import { Button, Callout, Card } from '../ui';
 
@@ -41,53 +42,61 @@ export function ConnectionSummary({
   testError,
   onTestConnection,
 }: ConnectionSummaryProps) {
+  const { t } = useTranslation();
   return (
     <div className="space-y-4">
       <Card padding="md" className="bg-surface-50 dark:bg-surface-900">
-        <p className="text-sm font-semibold text-surface-800 dark:text-surface-100">当前连接模式</p>
+        <p className="text-sm font-semibold text-surface-800 dark:text-surface-100">
+          {t('connectionSummary.modeTitle')}
+        </p>
         <p className="mt-1 text-sm text-surface-500 dark:text-surface-400">
           {effectiveMode === 'saved'
-            ? '直接复用已保存的 VPS 登录资料'
-            : '录入新的 SSH 登录信息，首次部署后会自动保存'}
+            ? t('connectionSummary.modeSavedDesc')
+            : t('connectionSummary.modeManualDesc')}
         </p>
         <div className="mt-3 grid gap-2">
-          <SummaryRow label="VPS 名称" value={vpsName.trim() || '待填写'} />
-          <SummaryRow label="连接目标" value={targetLabel} />
-          <SummaryRow label="认证方式" value={authLabel} />
+          <SummaryRow
+            label={t('connectionSummary.rowVpsName')}
+            value={vpsName.trim() || t('connectionSummary.pendingLabel')}
+          />
+          <SummaryRow label={t('connectionSummary.rowTarget')} value={targetLabel} />
+          <SummaryRow label={t('connectionSummary.rowAuth')} value={authLabel} />
         </div>
       </Card>
 
       {testError ? (
-        <Callout variant="danger" title="连接测试失败">
+        <Callout variant="danger" title={t('connectionSummary.testFailedTitle')}>
           {testError}
         </Callout>
       ) : null}
 
       {osInfo ? (
-        <Callout variant="info" title="已识别系统">
+        <Callout variant="info" title={t('connectionSummary.osDetectedTitle')}>
           {osInfo.distro} {osInfo.version} / {osInfo.arch}
         </Callout>
       ) : null}
 
       <Card padding="md">
-        <p className="text-sm font-semibold text-surface-800 dark:text-surface-100">连接检查</p>
+        <p className="text-sm font-semibold text-surface-800 dark:text-surface-100">
+          {t('connectionSummary.checkTitle')}
+        </p>
         <p className="mt-1 text-sm text-surface-500 dark:text-surface-400">
-          先验证 SSH 登录可用，再进入协议部署步骤。
+          {t('connectionSummary.checkHint')}
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <Button
             onClick={onTestConnection}
             loading={testState === 'loading'}
-            loadingText="连接检测中…"
+            loadingText={t('connectionSummary.testingLoading')}
           >
-            测试连接并识别系统
+            {t('connectionSummary.testButton')}
           </Button>
           <span className="text-sm text-surface-500 dark:text-surface-400">
             {testState === 'ok'
-              ? '连接成功，可以继续下一步。'
+              ? t('connectionSummary.testOkHint')
               : effectiveMode === 'saved'
-                ? '保存的 VPS 会直接复用历史凭据。'
-                : '支持密码或私钥认证。'}
+                ? t('connectionSummary.savedHint')
+                : t('connectionSummary.manualHint')}
           </span>
         </div>
       </Card>

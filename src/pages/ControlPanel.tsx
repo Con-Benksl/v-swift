@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
+import { useTranslation } from 'react-i18next';
 import {
   ConnectionStatus,
   NetworkStats,
@@ -41,35 +42,38 @@ const REFRESH_INTERVAL = 30_000;
 
 /** 连接状态徽章：色点 + 文字，错误详情不进徽章（统一由 Callout 单处展示） */
 function ConnectionStatusBadge({ status }: { status: ConnectionStatus }) {
+  const { t } = useTranslation();
+
   if (status.status === 'connected') {
     return (
       <Badge variant="success" dot pulse>
-        已连接
+        {t('controlPanel.statusConnected')}
       </Badge>
     );
   }
   if (status.status === 'connecting') {
     return (
       <Badge variant="warning" dot pulse>
-        连接中…
+        {t('controlPanel.statusConnecting')}
       </Badge>
     );
   }
   if (status.status === 'error') {
     return (
       <Badge variant="danger" dot>
-        连接错误
+        {t('controlPanel.statusError')}
       </Badge>
     );
   }
   return (
     <Badge variant="neutral" dot>
-      未连接
+      {t('controlPanel.statusDisconnected')}
     </Badge>
   );
 }
 
 export default function ControlPanel() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const vpsIdFromUrl = searchParams.get('vpsId');
@@ -128,7 +132,7 @@ export default function ControlPanel() {
       });
     } catch (err) {
       if (isCurrentRequest()) {
-        setError(extractIpcErrorMessage(err, '加载 VPS 列表失败'));
+        setError(extractIpcErrorMessage(err, t('controlPanel.loadProfilesFailed')));
       }
     } finally {
       if (isCurrentRequest()) {
@@ -197,7 +201,7 @@ export default function ControlPanel() {
           await connectVps(vpsId);
         } catch (err) {
           if (isCurrentRequest()) {
-            const msg = extractIpcErrorMessage(err, '连接失败');
+            const msg = extractIpcErrorMessage(err, t('controlPanel.connectFailed'));
             setConnectionStatus({ status: 'error', message: msg });
             setError(msg);
           }
@@ -241,7 +245,7 @@ export default function ControlPanel() {
       }
     } catch (err) {
       if (isCurrentStatusRequest()) {
-        setError(extractIpcErrorMessage(err, '加载状态失败'));
+        setError(extractIpcErrorMessage(err, t('controlPanel.loadStatusFailed')));
       }
     } finally {
       if (isCurrentStatusRequest()) {
@@ -259,7 +263,7 @@ export default function ControlPanel() {
       }
     } catch (err) {
       if (isCurrentServiceRequest()) {
-        setError(extractIpcErrorMessage(err, '加载服务状态失败'));
+        setError(extractIpcErrorMessage(err, t('controlPanel.loadServicesFailed')));
       }
     } finally {
       if (isCurrentServiceRequest()) {
@@ -286,7 +290,7 @@ export default function ControlPanel() {
         }
       } catch (err) {
         if (isCurrentLogRequest()) {
-          const msg = extractIpcErrorMessage(err, '加载日志失败');
+          const msg = extractIpcErrorMessage(err, t('controlPanel.loadLogsFailed'));
           setLogs([msg]);
           setError(msg);
         }
@@ -317,7 +321,7 @@ export default function ControlPanel() {
       setNetworkStats(net);
     } catch (err) {
       if (isCurrentRequest()) {
-        setError(extractIpcErrorMessage(err, '加载状态失败'));
+        setError(extractIpcErrorMessage(err, t('controlPanel.loadStatusFailed')));
       }
     } finally {
       if (isCurrentRequest()) {
@@ -342,7 +346,7 @@ export default function ControlPanel() {
     } catch (err) {
       if (isCurrentRequest()) {
         // 保留上一次的服务列表：一次瞬时刷新失败不应让整块服务与日志协议切换器消失。
-        setError(extractIpcErrorMessage(err, '加载服务状态失败'));
+        setError(extractIpcErrorMessage(err, t('controlPanel.loadServicesFailed')));
       }
     } finally {
       if (isCurrentRequest()) {
@@ -376,7 +380,7 @@ export default function ControlPanel() {
       setLogs(logLines);
     } catch (err) {
       if (isCurrentLogRequest()) {
-        const msg = extractIpcErrorMessage(err, '加载日志失败');
+        const msg = extractIpcErrorMessage(err, t('controlPanel.loadLogsFailed'));
         setLogs([msg]);
         setError(msg);
       }
@@ -438,7 +442,7 @@ export default function ControlPanel() {
       return isCurrentAction();
     } catch (err) {
       if (isCurrentAction() && selectedVpsIdRef.current === targetVpsId) {
-        const message = extractIpcErrorMessage(err, '操作失败');
+        const message = extractIpcErrorMessage(err, t('controlPanel.actionFailed'));
         setError(message);
         onFailure?.(message);
       }
@@ -498,9 +502,9 @@ export default function ControlPanel() {
   return (
     <PageShell width="xl">
       <SectionHeader
-        eyebrow="控制面板"
-        title="VPS 管理"
-        description="实时监控 VPS 状态，管理服务运行。"
+        eyebrow={t('controlPanel.eyebrow')}
+        title={t('controlPanel.title')}
+        description={t('controlPanel.description')}
         actions={
           <>
             <ConnectionStatusBadge status={connectionStatus} />
@@ -515,10 +519,10 @@ export default function ControlPanel() {
               variant="secondary"
               onClick={() => void refreshData()}
               loading={loadingStatus}
-              loadingText="刷新中…"
+              loadingText={t('controlPanel.refreshing')}
               disabled={!connected}
             >
-              刷新
+              {t('controlPanel.refresh')}
             </Button>
           </>
         }
@@ -528,7 +532,7 @@ export default function ControlPanel() {
         <Callout
           key={error}
           variant="danger"
-          title="操作未成功"
+          title={t('controlPanel.actionFailedTitle')}
           closable
           onClose={() => setError('')}
           className="mt-4"
@@ -556,15 +560,14 @@ export default function ControlPanel() {
             </svg>
           </div>
           <h2 className="mt-4 text-base font-semibold text-surface-800 dark:text-surface-100">
-            还没有可用的 VPS 节点
+            {t('controlPanel.emptyTitle')}
           </h2>
           <p className="mx-auto mt-1.5 max-w-md text-sm leading-relaxed text-surface-500 dark:text-surface-400">
-            控制面板需要连接一个已部署的 VPS 才能展示系统状态与服务。
-            先去新建一个节点，完成部署后回到这里管理。
+            {t('controlPanel.emptyHint')}
           </p>
           <div className="mt-5">
             <Button variant="primary" onClick={() => navigate('/new')}>
-              去新建节点
+              {t('controlPanel.emptyCta')}
             </Button>
           </div>
         </Card>
@@ -572,7 +575,7 @@ export default function ControlPanel() {
         <div className="mt-6 space-y-6">
           <section>
             <h2 className="mb-3 text-sm font-semibold text-surface-800 dark:text-surface-100">
-              系统状态
+              {t('controlPanel.systemStatus')}
             </h2>
             <SystemStatusCards status={systemStatus} loading={loadingStatus} />
           </section>
@@ -580,7 +583,7 @@ export default function ControlPanel() {
           {networkStats && (
             <section>
               <h2 className="mb-3 text-sm font-semibold text-surface-800 dark:text-surface-100">
-                流量统计
+                {t('controlPanel.trafficStats')}
               </h2>
               <NetworkTrafficCard
                 bytesReceived={networkStats.bytesReceived}
@@ -593,17 +596,17 @@ export default function ControlPanel() {
           <section>
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className="text-sm font-semibold text-surface-800 dark:text-surface-100">
-                服务管理
+                {t('controlPanel.serviceManagement')}
               </h2>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => void refreshServices()}
                 loading={loadingServices}
-                loadingText="刷新中…"
+                loadingText={t('controlPanel.refreshing')}
                 disabled={!connected}
               >
-                刷新服务
+                {t('controlPanel.refreshServices')}
               </Button>
             </div>
             <ServiceList
@@ -618,7 +621,7 @@ export default function ControlPanel() {
 
           <section>
             <h2 className="mb-3 text-sm font-semibold text-surface-800 dark:text-surface-100">
-              日志
+              {t('controlPanel.logs')}
             </h2>
             <LogViewer
               logs={logs}
@@ -638,8 +641,8 @@ export default function ControlPanel() {
       <Modal
         open={pendingStop !== null}
         onClose={closeStopConfirm}
-        title="确认停止服务？"
-        description="停止后，使用该协议的客户端连接会立即中断。"
+        title={t('controlPanel.stopConfirmTitle')}
+        description={t('controlPanel.stopConfirmDescription')}
         size="sm"
         closeOnOverlayClick={!stopInProgress}
         closeOnEsc={!stopInProgress}
@@ -647,27 +650,29 @@ export default function ControlPanel() {
         footer={
           <>
             <Button variant="secondary" onClick={closeStopConfirm} disabled={stopInProgress}>
-              取消
+              {t('controlPanel.cancel')}
             </Button>
             <Button
               variant="danger"
               onClick={() => void confirmStopService()}
               loading={stopInProgress}
-              loadingText="停止中…"
+              loadingText={t('controlPanel.stopping')}
             >
-              确认停止
+              {t('controlPanel.confirmStop')}
             </Button>
           </>
         }
       >
         {pendingStop ? (
           <p>
-            将停止 VPS「{pendingStopVpsName}」上的 {protocolLabel(pendingStop.protocol)} 服务。
-            此操作不会卸载节点，但会中断当前连接，之后可从服务列表重新启动。
+            {t('controlPanel.stopConfirmBody', {
+              vpsName: pendingStopVpsName,
+              protocol: protocolLabel(pendingStop.protocol),
+            })}
           </p>
         ) : null}
         {stopError ? (
-          <Callout variant="danger" title="停止失败" className="mt-3">
+          <Callout variant="danger" title={t('controlPanel.stopFailed')} className="mt-3">
             {stopError}
           </Callout>
         ) : null}

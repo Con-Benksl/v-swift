@@ -1,4 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react';
+import { t } from 'i18next';
 import { check, type DownloadEvent, type Update } from '@tauri-apps/plugin-updater';
 import { extractErrorMessage, formatBytes } from '../lib';
 import { Button } from './ui';
@@ -44,7 +45,12 @@ function getSnapshot(): UpdateSnapshot {
 async function checkForUpdate(manual: boolean): Promise<void> {
   if (installInFlight) return;
 
-  emit({ state: 'checking', message: manual ? '正在检查更新…' : '', downloaded: 0, total: null });
+  emit({
+    state: 'checking',
+    message: manual ? t('updateControl.checkingMessage') : '',
+    downloaded: 0,
+    total: null,
+  });
 
   try {
     const nextUpdate = await check();
@@ -53,13 +59,16 @@ async function checkForUpdate(manual: boolean): Promise<void> {
       pendingUpdate = null;
       emit({
         state: manual ? 'latest' : 'idle',
-        message: manual ? '当前已是最新版本' : '',
+        message: manual ? t('updateControl.latestMessage') : '',
       });
       return;
     }
 
     pendingUpdate = nextUpdate;
-    emit({ state: 'available', message: `发现新版本 ${nextUpdate.version}` });
+    emit({
+      state: 'available',
+      message: t('updateControl.updateAvailable', { version: nextUpdate.version }),
+    });
   } catch (error) {
     if (!manual) {
       emit({ state: 'idle', message: '' });
@@ -68,7 +77,7 @@ async function checkForUpdate(manual: boolean): Promise<void> {
 
     emit({
       state: 'error',
-      message: extractErrorMessage(error, '检查更新失败，请稍后重试'),
+      message: extractErrorMessage(error, t('updateControl.checkFailedFallback')),
     });
   }
 }
@@ -80,7 +89,12 @@ async function installUpdate(): Promise<void> {
 
   const target = pendingUpdate;
   installInFlight = true;
-  emit({ state: 'downloading', message: '正在下载更新…', downloaded: 0, total: null });
+  emit({
+    state: 'downloading',
+    message: t('updateControl.downloadingMessage'),
+    downloaded: 0,
+    total: null,
+  });
 
   try {
     await target.downloadAndInstall((event: DownloadEvent) => {
@@ -95,7 +109,7 @@ async function installUpdate(): Promise<void> {
   } catch (error) {
     emit({
       state: 'error',
-      message: extractErrorMessage(error, '下载或安装更新失败，请稍后重试'),
+      message: extractErrorMessage(error, t('updateControl.installFailedFallback')),
     });
     return;
   } finally {
@@ -103,7 +117,7 @@ async function installUpdate(): Promise<void> {
   }
 
   pendingUpdate = null;
-  emit({ state: 'ready', message: '更新已安装，请在远端任务结束后手动重启应用' });
+  emit({ state: 'ready', message: t('updateControl.readyMessage') });
 }
 
 export default function UpdateControl() {
@@ -140,7 +154,7 @@ export default function UpdateControl() {
 
       {state === 'available' ? (
         <Button variant="secondary" size="sm" onClick={() => void installUpdate()}>
-          下载并安装
+          {t('updateControl.installButton')}
         </Button>
       ) : (
         <Button
@@ -148,10 +162,10 @@ export default function UpdateControl() {
           size="sm"
           onClick={() => void checkForUpdate(true)}
           loading={state === 'checking'}
-          loadingText="检查中…"
+          loadingText={t('updateControl.checkingLoading')}
           disabled={state === 'downloading'}
         >
-          检查更新
+          {t('updateControl.checkButton')}
         </Button>
       )}
     </div>

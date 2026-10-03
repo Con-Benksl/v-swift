@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
+import { useTranslation } from 'react-i18next';
+import { t } from 'i18next';
 import ConnectForm, { ConnectFormValue } from '../components/ConnectForm';
 import DeployProgress from '../components/DeployProgress';
 import ProtocolPicker, { ProtocolPickerValue } from '../components/ProtocolPicker';
@@ -25,10 +27,10 @@ import {
 } from '../ipc/types';
 
 const steps = [
-  { id: 0, title: '选择 VPS' },
-  { id: 1, title: '命名节点' },
-  { id: 2, title: '部署节点' },
-  { id: 3, title: '查看订阅' },
+  { id: 0, title: t('newNodeWizard.stepSelectVps') },
+  { id: 1, title: t('newNodeWizard.stepNameNode') },
+  { id: 2, title: t('newNodeWizard.stepDeployNode') },
+  { id: 3, title: t('newNodeWizard.stepViewSubscription') },
 ];
 
 const DEFAULT_VLESS_PORT = 443;
@@ -122,6 +124,8 @@ function WizardStepper({
   locked: boolean;
   onStepBack: (target: number) => void;
 }) {
+  const { t } = useTranslation();
+
   return (
     <ol className="flex items-center">
       {steps.map((item, index) => {
@@ -141,11 +145,11 @@ function WizardStepper({
               }}
               title={
                 locked && completed
-                  ? '当前任务完成前暂不能返回'
+                  ? t('newNodeWizard.backLockedTitle')
                   : completed && item.id === 2
-                    ? '部署已完成；如需重新部署，请先返回协议设置'
+                    ? t('newNodeWizard.deployDoneBackTitle')
                     : canGoBack
-                      ? `返回「${item.title}」`
+                      ? t('newNodeWizard.backToStep', { step: item.title })
                       : item.title
               }
               className={`group flex items-center gap-2 rounded-control px-1 py-1 text-left ${
@@ -246,6 +250,7 @@ function WizardActions({ left, right }: { left?: ReactNode; right?: ReactNode })
 }
 
 export default function NewNodeWizard() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const {
     acquire: acquireDeploymentActivity,
@@ -336,7 +341,7 @@ export default function NewNodeWizard() {
       })
       .catch((error) => {
         if (!cancelled) {
-          setProfilesError(error instanceof Error ? error.message : '读取已保存 VPS 失败');
+          setProfilesError(error instanceof Error ? error.message : t('newNodeWizard.loadProfilesFailed'));
         }
       })
       .finally(() => {
@@ -422,7 +427,7 @@ export default function NewNodeWizard() {
     ) {
       connectionTestRequestIdRef.current += 1;
       setTestState('err');
-      setTestError('SSH 端口必须是 1 到 65535 之间的整数。');
+      setTestError(t('newNodeWizard.sshPortInvalid'));
       setOsInfo(null);
       return;
     }
@@ -489,7 +494,7 @@ export default function NewNodeWizard() {
   const rejectPendingHostKey = () => {
     setPendingHostKey(null);
     setTestState('err');
-    setTestError('已取消信任新的 SSH 主机密钥，未写入 known_hosts。');
+    setTestError(t('newNodeWizard.hostKeyRejected'));
   };
 
   const handleDeployEvent = (event: DeployEvent) => {
@@ -518,7 +523,7 @@ export default function NewNodeWizard() {
         setStep(3);
       })
       .catch((error) => {
-        setSubscriptionError(error instanceof Error ? error.message : '获取订阅信息失败');
+        setSubscriptionError(error instanceof Error ? error.message : t('newNodeWizard.fetchSubscriptionFailed'));
       })
       .finally(() => {
         setSubscriptionLoading(false);
@@ -578,16 +583,16 @@ export default function NewNodeWizard() {
   return (
     <PageShell width="lg">
       <SectionHeader
-        eyebrow="部署向导"
-        title="新建节点"
-        description="先选择或复用一台 VPS，再单独为本次协议实例命名并自动部署。"
+        eyebrow={t('newNodeWizard.eyebrow')}
+        title={t('newNodeWizard.title')}
+        description={t('newNodeWizard.description')}
         actions={
           <Button
             variant="secondary"
             onClick={() => navigate('/')}
             disabled={wizardNavigationLocked}
           >
-            返回列表
+            {t('newNodeWizard.backToList')}
           </Button>
         }
       />
@@ -620,11 +625,11 @@ export default function NewNodeWizard() {
                 <>
                   {!canContinueFromConnect ? (
                     <span className="text-xs text-surface-500 dark:text-surface-400">
-                      请先测试连接
+                      {t('newNodeWizard.testConnectionFirst')}
                     </span>
                   ) : null}
                   <Button onClick={() => setStep(1)} disabled={!canContinueFromConnect}>
-                    下一步：命名节点
+                    {t('newNodeWizard.nextNameNode')}
                   </Button>
                 </>
               }
@@ -638,12 +643,12 @@ export default function NewNodeWizard() {
             <WizardActions
               left={
                 <Button variant="secondary" onClick={() => setStep(0)}>
-                  上一步
+                  {t('newNodeWizard.prevStep')}
                 </Button>
               }
               right={
                 <Button onClick={startDeploy} disabled={!protocolValid}>
-                  开始部署
+                  {t('newNodeWizard.startDeploy')}
                 </Button>
               }
             />
@@ -665,15 +670,15 @@ export default function NewNodeWizard() {
 
             {/* 订阅获取反馈：留在部署区域内，不再与导航按钮挤一行；失败提供重试/跳过并完成 */}
             {subscriptionLoading ? (
-              <Callout variant="info" title="部署完成" className="mt-4">
+              <Callout variant="info" title={t('newNodeWizard.deployDoneTitle')} className="mt-4">
                 <span className="inline-flex items-center gap-2">
                   <Spinner size="sm" />
-                  正在获取订阅信息…
+                  {t('newNodeWizard.fetchingSubscription')}
                 </span>
               </Callout>
             ) : null}
             {subscriptionError ? (
-              <Callout variant="danger" title="获取订阅信息失败" className="mt-4">
+              <Callout variant="danger" title={t('newNodeWizard.fetchSubscriptionFailedTitle')} className="mt-4">
                 <p>{subscriptionError}</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button
@@ -684,16 +689,16 @@ export default function NewNodeWizard() {
                       }
                     }}
                     loading={subscriptionLoading}
-                    loadingText="重试中…"
+                    loadingText={t('newNodeWizard.retrying')}
                   >
-                    重试
+                    {t('newNodeWizard.retry')}
                   </Button>
                   <Button size="sm" variant="ghost" onClick={() => navigate('/')}>
-                    跳过并完成
+                    {t('newNodeWizard.skipAndFinish')}
                   </Button>
                 </div>
                 <p className="mt-2 text-xs opacity-80">
-                  节点已部署成功，跳过后可稍后在节点详情页查看订阅。
+                  {t('newNodeWizard.skipHint')}
                 </p>
               </Callout>
             ) : null}
@@ -705,7 +710,7 @@ export default function NewNodeWizard() {
                   onClick={() => handleStepBack(1)}
                   disabled={wizardNavigationLocked}
                 >
-                  上一步
+                  {t('newNodeWizard.prevStep')}
                 </Button>
               }
             />
@@ -716,44 +721,46 @@ export default function NewNodeWizard() {
         <Modal
           open={pendingHostKey !== null}
           onClose={rejectPendingHostKey}
-          title="首次连接：确认服务器身份"
+          title={t('newNodeWizard.hostKeyTitle')}
           description={
             pendingHostKey
-              ? `${pendingHostKey.host}:${pendingHostKey.port} 尚未出现在 known_hosts 中。`
+              ? t('newNodeWizard.hostKeyUnknownDescription', {
+                  host: pendingHostKey.host,
+                  port: pendingHostKey.port,
+                })
               : undefined
           }
           size="md"
           footer={
             <>
               <Button variant="secondary" onClick={rejectPendingHostKey}>
-                取消
+                {t('newNodeWizard.cancel')}
               </Button>
               <Button variant="primary" onClick={confirmPendingHostKey}>
-                指纹一致，信任此服务器
+                {t('newNodeWizard.trustServer')}
               </Button>
             </>
           }
         >
           <p>
-            请先通过云厂商控制台、VPS 初始化邮件或其他可信渠道核对下面的指纹。
-            确认一致后才会写入 known_hosts；此后该服务器的密钥若发生变化，连接会被拒绝。
+            {t('newNodeWizard.hostKeyBody')}
           </p>
           <dl className="mt-4 space-y-3 rounded-control bg-surface-50 p-3.5 dark:bg-surface-900">
             <div>
-              <dt className="text-xs text-surface-500 dark:text-surface-400">密钥算法</dt>
+              <dt className="text-xs text-surface-500 dark:text-surface-400">{t('newNodeWizard.hostKeyAlgorithm')}</dt>
               <dd className="mt-0.5 font-mono text-sm text-surface-800 dark:text-surface-100">
                 {pendingHostKey?.algorithm}
               </dd>
             </div>
             <div>
-              <dt className="text-xs text-surface-500 dark:text-surface-400">指纹</dt>
+              <dt className="text-xs text-surface-500 dark:text-surface-400">{t('newNodeWizard.hostKeyFingerprint')}</dt>
               <dd className="mt-0.5 break-all font-mono text-sm text-surface-800 dark:text-surface-100">
                 {pendingHostKey?.fingerprint}
               </dd>
             </div>
           </dl>
           <Callout variant="warning" className="mt-4">
-            如果这台服务器你以前连接过，指纹却变了，请不要信任：这可能是中间人攻击。
+            {t('newNodeWizard.hostKeyChangedWarning')}
           </Callout>
         </Modal>
 
@@ -768,7 +775,7 @@ export default function NewNodeWizard() {
             />
             <WizardActions
               right={
-                <Button onClick={() => navigate('/')}>完成并返回列表</Button>
+                <Button onClick={() => navigate('/')}>{t('newNodeWizard.finishBackToList')}</Button>
               }
             />
           </StepTransition>

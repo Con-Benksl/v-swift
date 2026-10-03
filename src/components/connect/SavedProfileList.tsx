@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import i18next from 'i18next';
 import { updateVpsProfileHost } from '../../ipc';
 import { VpsProfileSummary } from '../../ipc/types';
 import { extractErrorMessage, normalizeTimestamp } from '../../lib';
@@ -19,7 +21,7 @@ interface SavedProfileListProps {
 }
 
 function formatSavedTime(timestamp: number) {
-  return new Intl.DateTimeFormat('zh-CN', {
+  return new Intl.DateTimeFormat(i18next.language, {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
@@ -60,6 +62,7 @@ export function SavedProfileList({
   onReselect,
   onProfilesRefresh,
 }: SavedProfileListProps) {
+  const { t } = useTranslation();
   const {
     acquire: acquireDeploymentActivity,
     release: releaseDeploymentActivity,
@@ -122,7 +125,7 @@ export function SavedProfileList({
     const nextHost = editingHost.trim();
     if (!nextHost) {
       setHostUpdateState('err');
-      setHostUpdateError('VPS IP 或域名不能为空');
+      setHostUpdateError(t('savedProfileList.errorHostEmpty'));
       return;
     }
 
@@ -186,7 +189,9 @@ export function SavedProfileList({
                   <h3 className="break-words text-sm font-semibold text-surface-800 dark:text-surface-100">
                     {profile.name}
                   </h3>
-                  <Badge variant="neutral">{profile.nodeCount} 个节点</Badge>
+                  <Badge variant="neutral">
+                    {t('savedProfileList.nodeCount', { count: profile.nodeCount })}
+                  </Badge>
                 </div>
                 <p className="mt-1.5 break-all text-sm text-surface-500 dark:text-surface-400">
                   {profile.host}:{profile.sshPort} · {profile.sshUser}
@@ -197,13 +202,17 @@ export function SavedProfileList({
                   variant={active ? 'secondary' : 'ghost'}
                   size="sm"
                   aria-pressed={active}
-                  aria-label={active ? `${profile.name} 已选择` : `选择 ${profile.name}`}
+                  aria-label={
+                    active
+                      ? t('savedProfileList.ariaSelected', { name: profile.name })
+                      : t('savedProfileList.ariaSelect', { name: profile.name })
+                  }
                   onClick={(event) => {
                     event.stopPropagation();
                     onSelect(profile);
                   }}
                 >
-                  {active ? '已选择' : '选择'}
+                  {active ? t('savedProfileList.selectedButton') : t('savedProfileList.selectButton')}
                 </Button>
                 <Button
                   ref={(element) => {
@@ -215,14 +224,14 @@ export function SavedProfileList({
                   }}
                   variant="ghost"
                   size="sm"
-                  aria-label={`修改 ${profile.name} 的 IP`}
+                  aria-label={t('savedProfileList.ariaEditIp', { name: profile.name })}
                   onClick={(event) => {
                     event.stopPropagation();
                     startHostEdit(profile);
                   }}
                   disabled={hostUpdateState === 'saving'}
                 >
-                  修改 IP
+                  {t('savedProfileList.editIpButton')}
                 </Button>
               </div>
             </div>
@@ -233,7 +242,7 @@ export function SavedProfileList({
                 onClick={(event) => event.stopPropagation()}
               >
                 <Field
-                  label="新的服务器 IP / 域名"
+                  label={t('savedProfileList.newHostLabel')}
                   error={hostUpdateState === 'err' && hostUpdateError ? hostUpdateError : undefined}
                 >
                   <input
@@ -264,22 +273,22 @@ export function SavedProfileList({
                     onClick={cancelHostEdit}
                     disabled={hostUpdateState === 'saving'}
                   >
-                    取消
+                    {t('savedProfileList.cancelButton')}
                   </Button>
                   <Button
                     size="sm"
                     onClick={() => saveHostEdit(profile)}
                     loading={hostUpdateState === 'saving'}
-                    loadingText="保存中…"
+                    loadingText={t('savedProfileList.savingLoading')}
                   >
-                    保存 IP
+                    {t('savedProfileList.saveIpButton')}
                   </Button>
                 </div>
               </div>
             ) : null}
 
             <p className="mt-2 text-xs text-surface-500 dark:text-surface-400">
-              保存于 {formatSavedTime(profile.createdAt)}
+              {t('savedProfileList.savedAt', { time: formatSavedTime(profile.createdAt) })}
             </p>
           </div>
         );

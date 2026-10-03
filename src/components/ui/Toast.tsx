@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { t } from 'i18next';
+import { useTranslation } from 'react-i18next';
 
 /** Toast 语义类型 */
 export type ToastKind = 'success' | 'error' | 'info';
@@ -44,7 +46,7 @@ const ToastContext = createContext<ToastApi | null>(null);
 export function useToast(): ToastApi {
   const ctx = useContext(ToastContext);
   if (!ctx) {
-    throw new Error('useToast 必须在 <ToastProvider> 内使用');
+    throw new Error(t('toast.useOutsideProvider'));
   }
   return ctx;
 }
@@ -103,6 +105,7 @@ const kindIcon: Record<ToastKind, ReactNode> = {
 type Phase = 'enter' | 'visible' | 'leaving';
 
 function ToastItem({ toast, onRemove }: { toast: ToastRecord; onRemove: (id: number) => void }) {
+  const { t } = useTranslation();
   const [phase, setPhase] = useState<Phase>('enter');
 
   /* 入场：双 rAF 保证首帧先以 enter 态绘制，再过渡到 visible */
@@ -138,8 +141,8 @@ function ToastItem({ toast, onRemove }: { toast: ToastRecord; onRemove: (id: num
       <span className="min-w-0 break-words">{toast.message}</span>
       <button
         type="button"
-        aria-label="关闭通知"
-        title="关闭通知"
+        aria-label={t('toast.closeNotification')}
+        title={t('toast.closeNotification')}
         onClick={() => setPhase('leaving')}
         className="ml-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-surface-500 transition-colors hover:bg-surface-100 hover:text-surface-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 dark:text-surface-400 dark:hover:bg-surface-700 dark:hover:text-surface-100"
       >

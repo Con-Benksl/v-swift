@@ -14,6 +14,8 @@
  *   - 其余可 JSON 序列化的对象
  */
 
+import { t } from 'i18next';
+
 /**
  * 将任意形态的后端错误提炼为用户可读的中文文案。
  *
@@ -27,7 +29,7 @@
  *                                                         // '[install] 下载失败'
  * extractErrorMessage(null, '加载失败');                  // '加载失败'
  */
-export function extractErrorMessage(error: unknown, fallback = '操作失败'): string {
+export function extractErrorMessage(error: unknown, fallback: string = t('libErrors.operationFailed')): string {
   if (error instanceof Error && error.message) return error.message;
   if (typeof error === 'string' && error) return error;
 

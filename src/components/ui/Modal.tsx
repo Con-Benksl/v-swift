@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 
 /** 弹窗尺寸档位 */
 export type ModalSize = 'sm' | 'md' | 'lg';
@@ -80,6 +81,7 @@ export function Modal({
   closeOnEsc = true,
   showCloseButton = true,
 }: ModalProps) {
+  const { t } = useTranslation();
   const panelRef = useRef<HTMLDivElement>(null);
   const titleIdRef = useRef(`modal-title-${Math.random().toString(36).slice(2, 9)}`);
   const descIdRef = useRef(`modal-desc-${Math.random().toString(36).slice(2, 9)}`);
@@ -201,7 +203,7 @@ export function Modal({
             <button
               type="button"
               onClick={onClose}
-              aria-label="关闭弹窗"
+              aria-label={t('modal.closeDialog')}
               className="shrink-0 rounded-control p-1.5 text-surface-500 transition-colors duration-150 hover:bg-surface-100 hover:text-surface-700 dark:text-surface-400 dark:hover:bg-surface-700 dark:hover:text-surface-200"
             >
               <CloseIcon />

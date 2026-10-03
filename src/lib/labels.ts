@@ -8,6 +8,7 @@
  * 兜底文案（如 '未记录' / '端口待确认'）由展示层自行决定。
  */
 
+import { t } from 'i18next';
 import { NodeRecord } from '../ipc/types';
 
 /** 已知协议 id → 用户可读名称 的对照表。 */
@@ -38,9 +39,9 @@ export function protocolLabel(protocol: string): string {
  * statusLabel('unknown');     // '未知'
  */
 export function statusLabel(status: string): string {
-  if (status === 'active') return '运行中';
-  if (status === 'uninstalled') return '已卸载';
-  return '未知';
+  if (status === 'active') return t('labels.statusRunning');
+  if (status === 'uninstalled') return t('labels.statusUninstalled');
+  return t('labels.statusUnknown');
 }
 
 /**

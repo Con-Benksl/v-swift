@@ -1,4 +1,6 @@
 import { useEffect, useState, type MouseEvent } from 'react';
+import { useTranslation } from 'react-i18next';
+import { t } from 'i18next';
 import { listen } from '@tauri-apps/api/event';
 import { HashRouter, Navigate, NavLink, Route, Routes } from 'react-router';
 import ControlPanel from './pages/ControlPanel';
@@ -163,11 +165,12 @@ function MoonIcon() {
 /* ---------------- 侧边栏 ---------------- */
 
 const NAV_ITEMS = [
-  { to: '/', end: true, label: '节点列表', Icon: ServerIcon },
-  { to: '/control', end: false, label: '控制面板', Icon: SlidersIcon },
+  { to: '/', end: true, label: t('app.navNodes'), Icon: ServerIcon },
+  { to: '/control', end: false, label: t('app.navControlPanel'), Icon: SlidersIcon },
 ] as const;
 
 function SideNav() {
+  const { t } = useTranslation();
   const { active: deploymentActive } = useDeploymentActivity();
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `group relative flex items-center justify-center gap-2.5 rounded-control px-3 py-2 text-sm font-medium transition-colors duration-150 sm:justify-start ${deploymentActive ? 'cursor-not-allowed opacity-50' : ''} ${
@@ -183,7 +186,7 @@ function SideNav() {
   };
 
   return (
-    <nav className="flex flex-col gap-1 px-3" aria-label="主导航">
+    <nav className="flex flex-col gap-1 px-3" aria-label={t('app.primaryNavAriaLabel')}>
       {NAV_ITEMS.map(({ to, end, label, Icon }) => (
         <NavLink
           key={to}
@@ -192,7 +195,7 @@ function SideNav() {
           className={linkClass}
           aria-disabled={deploymentActive || undefined}
           onClick={preventNavigationWhileDeploying}
-          title={deploymentActive ? '部署或订阅读取进行中，请稍候' : label}
+          title={deploymentActive ? t('app.navigationBlockedTitle') : label}
         >
           {({ isActive }) => (
             <>
@@ -214,6 +217,7 @@ function SideNav() {
 }
 
 function ThemeToggle() {
+  const { t } = useTranslation();
   const [dark, toggleDark] = useDarkMode();
 
   return (
@@ -221,17 +225,19 @@ function ThemeToggle() {
       type="button"
       onClick={toggleDark}
       aria-pressed={dark}
-      aria-label={dark ? '切换浅色模式' : '切换深色模式'}
-      title={dark ? '切换浅色模式' : '切换深色模式'}
+      aria-label={dark ? t('app.switchToLightMode') : t('app.switchToDarkMode')}
+      title={dark ? t('app.switchToLightMode') : t('app.switchToDarkMode')}
       className="flex w-full items-center justify-center gap-2.5 rounded-control px-3 py-2 text-sm font-medium text-surface-600 transition-colors duration-150 hover:bg-surface-100 hover:text-surface-800 dark:text-surface-400 dark:hover:bg-surface-800 dark:hover:text-surface-100 sm:justify-start"
     >
       {dark ? <SunIcon /> : <MoonIcon />}
-      <span className="hidden sm:inline">{dark ? '切换浅色模式' : '切换深色模式'}</span>
+      <span className="hidden sm:inline">{dark ? t('app.switchToLightMode') : t('app.switchToDarkMode')}</span>
     </button>
   );
 }
 
 function Sidebar() {
+  const { t } = useTranslation();
+
   return (
     <aside className="flex w-16 shrink-0 flex-col border-r border-surface-border bg-surface-card transition-[width] duration-200 dark:border-surface-700 dark:bg-surface-900 sm:w-52">
       <div className="flex items-center justify-center gap-2.5 px-3 pb-5 pt-5 sm:justify-start sm:px-5">
@@ -247,7 +253,7 @@ function Sidebar() {
           <h1 className="truncate text-base font-semibold tracking-tight text-surface-900 dark:text-surface-50">
             V-Swift
           </h1>
-          <p className="text-xs text-surface-500 dark:text-surface-400">代理节点管理</p>
+          <p className="text-xs text-surface-500 dark:text-surface-400">{t('app.tagline')}</p>
         </div>
       </div>
       <SideNav />
@@ -264,11 +270,12 @@ function Sidebar() {
 /* ---------------- 应用外壳 ---------------- */
 
 function AppShell() {
+  const { t } = useTranslation();
   const toast = useToast();
 
   useEffect(() => {
     const showNavigationWarning = () => {
-      toast.info('远端任务进行中，已阻止离开当前页面。', { duration: 4000 });
+      toast.info(t('app.navigationBlockedToast'), { duration: 4000 });
     };
     window.addEventListener(NAVIGATION_BLOCKED_EVENT, showNavigationWarning);
 
@@ -276,7 +283,7 @@ function AppShell() {
     let unlisten: (() => void) | undefined;
     if ('__TAURI_INTERNALS__' in window) {
       void listen('remote-mutation-close-blocked', () => {
-        toast.info('远端变更尚未完成，窗口暂时不能关闭。', { duration: 5000 });
+        toast.info(t('app.remoteCloseBlockedToast'), { duration: 5000 });
       }).then((dispose) => {
         if (disposed) dispose();
         else unlisten = dispose;

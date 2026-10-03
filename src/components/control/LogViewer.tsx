@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button, Card, SegmentedControl, Spinner } from '../ui';
 
 interface LogViewerProps {
@@ -50,6 +51,7 @@ export function LogViewer({
   activeProtocol,
   onProtocolChange,
 }: LogViewerProps) {
+  const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
   /** 是否跟随滚动到底部；用户上滚查看历史时暂停跟随 */
   const followRef = useRef(true);
@@ -111,10 +113,12 @@ export function LogViewer({
             options={protocolOptions}
             value={activeProtocol}
             onChange={onProtocolChange}
-            aria-label="日志协议"
+            aria-label={t('logViewer.protocolAriaLabel')}
           />
         ) : (
-          <span className="text-xs text-surface-500 dark:text-surface-400">暂无日志来源</span>
+          <span className="text-xs text-surface-500 dark:text-surface-400">
+            {t('logViewer.noLogSource')}
+          </span>
         )}
         <div className="flex items-center gap-1.5">
           <Button
@@ -124,16 +128,16 @@ export function LogViewer({
             disabled={logs.length === 0}
           >
             {copied ? <CheckIcon /> : <CopyIcon />}
-            {copied ? '已复制' : '复制全部'}
+            {copied ? t('logViewer.copiedButton') : t('logViewer.copyAllButton')}
           </Button>
           <Button
             variant="ghost"
             size="sm"
             onClick={onRefresh}
             loading={loading}
-            loadingText="刷新中…"
+            loadingText={t('logViewer.refreshingLoading')}
           >
-            刷新
+            {t('logViewer.refreshButton')}
           </Button>
         </div>
       </div>
@@ -146,12 +150,12 @@ export function LogViewer({
       >
         {loading && logs.length === 0 ? (
           <div className="flex items-center justify-center py-8 text-surface-500 dark:text-surface-400">
-            <Spinner size="md" tone="inherit" label="加载日志" />
-            <span className="ml-2.5">正在加载日志…</span>
+            <Spinner size="md" tone="inherit" label={t('logViewer.loadingLabel')} />
+            <span className="ml-2.5">{t('logViewer.loadingMessage')}</span>
           </div>
         ) : logs.length === 0 ? (
           <div className="flex items-center justify-center py-8 text-surface-500">
-            暂无日志
+            {t('logViewer.emptyMessage')}
           </div>
         ) : (
           logs.map((line, i) => (

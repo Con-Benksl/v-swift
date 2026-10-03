@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
+import { useTranslation } from 'react-i18next';
 import SubscriptionView from '../components/SubscriptionView';
 import {
   Badge,
@@ -62,6 +63,7 @@ function StatCardSkeleton() {
 }
 
 export default function NodeDetail() {
+  const { t } = useTranslation();
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
@@ -100,7 +102,7 @@ export default function NodeDetail() {
   useEffect(() => {
     if (!id) {
       setNode(null);
-      setNodeError('缺少节点 ID');
+      setNodeError(t('nodeDetail.missingNodeId'));
       setNodeLoading(false);
       return;
     }
@@ -120,7 +122,7 @@ export default function NodeDetail() {
       })
       .catch((err) => {
         if (!cancelled) {
-          setNodeError(extractErrorMessage(err, '加载节点详情失败'));
+          setNodeError(extractErrorMessage(err, t('nodeDetail.loadNodeFailed')));
         }
       })
       .finally(() => {
@@ -137,7 +139,7 @@ export default function NodeDetail() {
   useEffect(() => {
     if (!id) {
       setSubscription(null);
-      setSubscriptionError('缺少节点 ID');
+      setSubscriptionError(t('nodeDetail.missingNodeId'));
       setSubscriptionLoading(false);
       return;
     }
@@ -155,7 +157,7 @@ export default function NodeDetail() {
       })
       .catch((err) => {
         if (!cancelled) {
-          setSubscriptionError(extractErrorMessage(err, '加载订阅信息失败'));
+          setSubscriptionError(extractErrorMessage(err, t('nodeDetail.loadSubscriptionFailed')));
         }
       })
       .finally(() => {
@@ -215,13 +217,13 @@ export default function NodeDetail() {
         if (outcome.warnings.length > 0) {
           toast.info(outcome.warnings.join('；'), { duration: 7000 });
         } else {
-          toast.success('节点已卸载');
+          toast.success(t('nodeDetail.uninstallSuccess'));
         }
         navigate('/');
       })
       .catch((err) => {
         if (isCurrentRequest()) {
-          setUninstallError(extractErrorMessage(err, '卸载失败'));
+          setUninstallError(extractErrorMessage(err, t('nodeDetail.uninstallFailed')));
           // Backend may deliberately preserve a retryable `unknown` record after a partial
           // remote uninstall. Reload so the page does not keep presenting stale "active" state.
           setNodeReloadTick((value) => value + 1);
@@ -244,27 +246,27 @@ export default function NodeDetail() {
   return (
     <PageShell width="lg">
       <SectionHeader
-        eyebrow="节点详情"
-        title={currentNode?.name ?? '节点详情'}
+        eyebrow={t('nodeDetail.eyebrow')}
+        title={currentNode?.name ?? t('nodeDetail.eyebrow')}
         description={
           currentNode
             ? `${currentNode.vpsName} · ${currentNode.host}:${currentNode.sshPort} · ${protocolLabel(currentNode.protocol)}`
             : nodeLoading
-              ? '读取节点信息中'
+              ? t('nodeDetail.loadingDescription')
               : undefined
         }
         actions={
           <>
             <Button variant="ghost" onClick={() => navigate('/')} disabled={uninstalling}>
               <ArrowLeftIcon />
-              返回列表
+              {t('nodeDetail.backToList')}
             </Button>
             <Button
               variant="danger"
               onClick={openConfirm}
               disabled={!currentNode || uninstalling}
             >
-              卸载节点
+              {t('nodeDetail.uninstallNode')}
             </Button>
           </>
         }
@@ -273,7 +275,7 @@ export default function NodeDetail() {
       {/* 加载 / 错误 / 成功三态共享同一容器结构，消除跳动 */}
       <div className="mt-6">
         {nodeError && !nodeLoading ? (
-          <Callout variant="danger" title="节点详情加载失败">
+          <Callout variant="danger" title={t('nodeDetail.loadNodeFailed')}>
             <p>{nodeError}</p>
             <div className="mt-3">
               <Button
@@ -281,7 +283,7 @@ export default function NodeDetail() {
                 size="sm"
                 onClick={() => setNodeReloadTick((value) => value + 1)}
               >
-                重试
+                {t('nodeDetail.retry')}
               </Button>
             </div>
           </Callout>
@@ -299,24 +301,24 @@ export default function NodeDetail() {
               ) : (
                 <>
                   <StatCard
-                    label="状态"
+                    label={t('nodeDetail.statStatus')}
                     value={
                       <Badge variant={statusBadgeVariant(currentNode.status)} dot>
                         {statusLabel(currentNode.status)}
                       </Badge>
                     }
                   />
-                  <StatCard label="VPS 名称" value={currentNode.vpsName} />
+                  <StatCard label={t('nodeDetail.statVpsName')} value={currentNode.vpsName} />
                   <StatCard
-                    label="SSH 登录"
+                    label={t('nodeDetail.statSshLogin')}
                     value={currentNode.sshUser}
                     subValue={`${currentNode.host}:${currentNode.sshPort}`}
                   />
                   <StatCard
-                    label="协议端口"
-                    value={port !== undefined ? String(port) : '未记录'}
+                    label={t('nodeDetail.statProtocolPort')}
+                    value={port !== undefined ? String(port) : t('nodeDetail.portNotRecorded')}
                   />
-                  <StatCard label="创建时间" value={formatAbsoluteTime(currentNode.createdAt)} />
+                  <StatCard label={t('nodeDetail.statCreatedAt')} value={formatAbsoluteTime(currentNode.createdAt)} />
                 </>
               )}
             </div>
@@ -339,10 +341,10 @@ export default function NodeDetail() {
                   </div>
                 </Card>
               ) : subscriptionError ? (
-                <Callout variant="danger" title="订阅信息加载失败">
+                <Callout variant="danger" title={t('nodeDetail.subscriptionLoadFailed')}>
                   <p>{subscriptionError}</p>
                   <p className="mt-2 text-xs opacity-80">
-                    节点详情仍可正常查看；这里只会重试订阅信息，不会重新加载节点或执行远端操作。
+                    {t('nodeDetail.subscriptionRetryHint')}
                   </p>
                   <div className="mt-3">
                     <Button
@@ -350,7 +352,7 @@ export default function NodeDetail() {
                       size="sm"
                       onClick={() => setSubscriptionReloadTick((value) => value + 1)}
                     >
-                      重试订阅
+                      {t('nodeDetail.retrySubscription')}
                     </Button>
                   </div>
                 </Callout>
@@ -363,8 +365,8 @@ export default function NodeDetail() {
                   managedQrSvg={subscription.managedQrSvg}
                 />
               ) : (
-                <Callout variant="danger" title="订阅信息不可用">
-                  未返回订阅信息，请重试。
+                <Callout variant="danger" title={t('nodeDetail.subscriptionUnavailable')}>
+                  {t('nodeDetail.subscriptionUnavailableHint')}
                 </Callout>
               )}
             </div>
@@ -375,7 +377,7 @@ export default function NodeDetail() {
       <Modal
         open={pendingUninstall !== null}
         onClose={closeConfirm}
-        title="确认卸载节点？"
+        title={t('nodeDetail.uninstallConfirmTitle')}
         size="sm"
         closeOnOverlayClick={!uninstalling}
         closeOnEsc={!uninstalling}
@@ -383,25 +385,24 @@ export default function NodeDetail() {
         footer={
           <>
             <Button variant="secondary" onClick={closeConfirm} disabled={uninstalling}>
-              取消
+              {t('nodeDetail.cancel')}
             </Button>
             <Button
               variant="danger"
               onClick={handleUninstall}
               loading={uninstalling}
-              loadingText="卸载中…"
+              loadingText={t('nodeDetail.uninstalling')}
             >
-              确认卸载
+              {t('nodeDetail.confirmUninstall')}
             </Button>
           </>
         }
       >
         <p>
-          将卸载节点「{pendingUninstall?.name}」。这会调用后端卸载流程并移除该节点记录，但已保存的 VPS
-          登录资料会继续保留，方便以后复用。
+          {t('nodeDetail.uninstallConfirmBody', { name: pendingUninstall?.name ?? '' })}
         </p>
         {uninstallError ? (
-          <Callout variant="danger" title="卸载失败" className="mt-3">
+          <Callout variant="danger" title={t('nodeDetail.uninstallFailed')} className="mt-3">
             {uninstallError}
           </Callout>
         ) : null}

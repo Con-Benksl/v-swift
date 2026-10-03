@@ -30,8 +30,8 @@
     "copyright": "Copyright © 2026 Con-Benksl. MIT Licensed.",
     "category": "Utility",
     "licenseFile": "../LICENSE",
-    "shortDescription": "VPS 代理节点部署与管理工具",
-    "longDescription": "V-Swift 通过 SSH 连接你自己的 VPS，自动安装并配置 VLESS-Reality 或 Hysteria2 服务，生成订阅信息，并提供服务状态与日志的控制面板。",
+    "shortDescription": "VPS proxy node deployment and management tool",
+    "longDescription": "V-Swift connects to your own VPS over SSH, automatically installs and configures VLESS-Reality or Hysteria2 services, generates subscription info, and provides a control panel for service status and logs.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

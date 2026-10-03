@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { ServiceStatus } from '../../ipc/control';
 import { protocolLabel } from '../../lib';
 import { Badge, Button, Card, Skeleton, Spinner } from '../ui';
@@ -29,6 +30,7 @@ function ServiceRow({
   /** 当前行是否为正在操作的目标行 */
   acting: boolean;
 }) {
+  const { t } = useTranslation();
   const isRunning = service.running && service.active;
 
   return (
@@ -42,16 +44,18 @@ function ServiceRow({
             <Badge variant="info">{protocolLabel(service.protocol)}</Badge>
             {isRunning ? (
               <Badge variant="success" dot pulse>
-                运行中
+                {t('serviceList.statusRunning')}
               </Badge>
             ) : (
               <Badge variant="danger" dot>
-                已停止
+                {t('serviceList.statusStopped')}
               </Badge>
             )}
           </div>
           <p className="mt-1.5 text-xs text-surface-500 dark:text-surface-400">
-            {service.port ? `端口 ${service.port}` : '端口未记录'}
+            {service.port
+              ? t('serviceList.portLabel', { port: service.port })
+              : t('serviceList.portUnknown')}
           </p>
         </div>
       </div>
@@ -59,21 +63,21 @@ function ServiceRow({
         {acting ? (
           <span className="inline-flex items-center gap-1.5 pr-1 text-xs text-surface-500 dark:text-surface-400">
             <Spinner size="sm" />
-            处理中…
+            {t('serviceList.processingLabel')}
           </span>
         ) : null}
         {isRunning ? (
           <>
             <Button variant="secondary" size="sm" onClick={onRestart} disabled={busy}>
-              重启
+              {t('serviceList.restartButton')}
             </Button>
             <Button variant="danger" size="sm" onClick={onStop} disabled={busy}>
-              停止
+              {t('serviceList.stopButton')}
             </Button>
           </>
         ) : (
           <Button variant="secondary" size="sm" onClick={onStart} disabled={busy}>
-            启动
+            {t('serviceList.startButton')}
           </Button>
         )}
       </div>
@@ -106,6 +110,7 @@ export function ServiceList({
   onStop,
   actionLoading,
 }: ServiceListProps) {
+  const { t } = useTranslation();
   if (loading) {
     return (
       <div className="space-y-3">
@@ -119,11 +124,13 @@ export function ServiceList({
   if (services.length === 0) {
     return (
       <Card padding="lg" className="border-dashed text-center shadow-none">
-        <p className="text-sm font-medium text-surface-600 dark:text-surface-300">暂无服务</p>
+        <p className="text-sm font-medium text-surface-600 dark:text-surface-300">
+          {t('serviceList.emptyTitle')}
+        </p>
         <p className="mt-1.5 text-xs leading-relaxed text-surface-500 dark:text-surface-400">
-          连接成功后会自动列出该 VPS 上已部署的代理服务；
+          {t('serviceList.emptyHint1')}
           <br />
-          若刚刚完成部署，点击右上角「刷新服务」获取最新状态。
+          {t('serviceList.emptyHint2')}
         </p>
       </Card>
     );

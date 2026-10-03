@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+
 /** Spinner 尺寸档位 */
 export type SpinnerSize = 'sm' | 'md' | 'lg';
 
@@ -31,7 +33,9 @@ const sizeClass: Record<SpinnerSize, string> = {
  * 加载指示器：品牌色圆环 + 纯 CSS 旋转动画（animate-spin），带 aria-label。
  * 用法：<Spinner size="sm" tone="inherit" />
  */
-export function Spinner({ size = 'md', tone = 'brand', label = '加载中', className = '' }: SpinnerProps) {
+export function Spinner({ size = 'md', tone = 'brand', label, className = '' }: SpinnerProps) {
+  const { t } = useTranslation();
+  const resolvedLabel = label ?? t('spinner.loading');
   const toneClass = tone === 'brand' ? 'text-brand-600 dark:text-brand-400' : 'text-current';
   return (
     <svg
@@ -39,7 +43,7 @@ export function Spinner({ size = 'md', tone = 'brand', label = '加载中', clas
       viewBox="0 0 24 24"
       fill="none"
       role="status"
-      aria-label={label}
+      aria-label={resolvedLabel}
     >
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path className="opacity-90" fill="currentColor" d="M22 12a10 10 0 0 0-10-10v4a6 6 0 0 1 6 6h4z" />

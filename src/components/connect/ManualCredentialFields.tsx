@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Field, inputClass, SegmentedControl, textareaClass } from '../ui';
 import type { ConnectFormValue } from './types';
 
@@ -29,13 +30,19 @@ export function ManualCredentialFields({
   onChange,
   onTouch,
 }: ManualCredentialFieldsProps) {
+  const { t } = useTranslation();
   const isPassword = value.auth.kind === 'password';
   const isPrivateKey = value.auth.kind === 'privateKey';
 
   return (
     <div className="space-y-5">
       <div className="grid gap-5 md:grid-cols-2">
-        <Field label="服务器 IP / 域名" error={errors.host} required className="md:col-span-1">
+        <Field
+          label={t('manualCredentialFields.hostLabel')}
+          error={errors.host}
+          required
+          className="md:col-span-1"
+        >
           <input
             className={inputClass}
             value={value.host}
@@ -46,7 +53,12 @@ export function ManualCredentialFields({
             placeholder="203.0.113.10"
           />
         </Field>
-        <Field label="SSH 端口" error={errors.port} required hint="1–65535，默认 22">
+        <Field
+          label={t('manualCredentialFields.portLabel')}
+          error={errors.port}
+          required
+          hint={t('manualCredentialFields.portHint')}
+        >
           <input
             className={inputClass}
             type="number"
@@ -61,7 +73,7 @@ export function ManualCredentialFields({
             }}
           />
         </Field>
-        <Field label="SSH 用户名" error={errors.user} required>
+        <Field label={t('manualCredentialFields.userLabel')} error={errors.user} required>
           <input
             className={inputClass}
             value={value.user}
@@ -75,12 +87,14 @@ export function ManualCredentialFields({
       </div>
 
       <div>
-        <p className="mb-1.5 text-sm font-medium text-surface-700 dark:text-surface-300">认证方式</p>
+        <p className="mb-1.5 text-sm font-medium text-surface-700 dark:text-surface-300">
+          {t('manualCredentialFields.authMethodLabel')}
+        </p>
         <SegmentedControl
-          aria-label="认证方式"
+          aria-label={t('manualCredentialFields.authMethodLabel')}
           options={[
-            { value: 'password', label: '密码' },
-            { value: 'privateKey', label: '私钥' },
+            { value: 'password', label: t('manualCredentialFields.authPassword') },
+            { value: 'privateKey', label: t('manualCredentialFields.authPrivateKey') },
           ]}
           value={value.auth.kind}
           onChange={(kind) => {
@@ -94,7 +108,12 @@ export function ManualCredentialFields({
         />
 
         {isPassword ? (
-          <Field label="SSH 密码" error={errors.password} required className="mt-4">
+          <Field
+            label={t('manualCredentialFields.passwordLabel')}
+            error={errors.password}
+            required
+            className="mt-4"
+          >
             <input
               className={inputClass}
               type="password"
@@ -103,14 +122,14 @@ export function ManualCredentialFields({
                 onTouch('password');
                 onChange({ auth: { kind: 'password', password: event.target.value } });
               }}
-              placeholder="请输入密码"
+              placeholder={t('manualCredentialFields.passwordPlaceholder')}
             />
           </Field>
         ) : null}
 
         {isPrivateKey ? (
           <div className="mt-4 grid gap-4">
-            <Field label="私钥内容" error={errors.key} required>
+            <Field label={t('manualCredentialFields.keyLabel')} error={errors.key} required>
               <textarea
                 className={`${textareaClass} min-h-40 font-mono text-xs`}
                 value={value.auth.kind === 'privateKey' ? value.auth.key : ''}
@@ -128,7 +147,10 @@ export function ManualCredentialFields({
                 placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
               />
             </Field>
-            <Field label="私钥口令（可选）" hint="如果私钥有加密口令，请在此填写">
+            <Field
+              label={t('manualCredentialFields.passphraseLabel')}
+              hint={t('manualCredentialFields.passphraseHint')}
+            >
               <input
                 className={inputClass}
                 type="password"
@@ -142,7 +164,7 @@ export function ManualCredentialFields({
                     },
                   })
                 }
-                placeholder="如果私钥有加密口令"
+                placeholder={t('manualCredentialFields.passphrasePlaceholder')}
               />
             </Field>
           </div>

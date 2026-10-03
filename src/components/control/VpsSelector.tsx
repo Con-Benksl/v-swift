@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { VpsProfileSummary } from '../../ipc/types';
 import { selectClass, Skeleton } from '../ui';
 
@@ -10,8 +11,15 @@ interface VpsSelectorProps {
 }
 
 export function VpsSelector({ profiles, selectedId, onSelect, loading, disabled }: VpsSelectorProps) {
+  const { t } = useTranslation();
   if (loading) {
-    return <Skeleton variant="block" className="h-9 w-56" aria-label="加载 VPS 列表" />;
+    return (
+      <Skeleton
+        variant="block"
+        className="h-9 w-56"
+        aria-label={t('vpsSelector.loadingAriaLabel')}
+      />
+    );
   }
 
   return (
@@ -21,14 +29,14 @@ export function VpsSelector({ profiles, selectedId, onSelect, loading, disabled 
         onChange={(e) => onSelect(e.target.value)}
         disabled={disabled || profiles.length === 0}
         className={`${selectClass} appearance-none pr-9`}
-        aria-label="选择 VPS"
+        aria-label={t('vpsSelector.selectAriaLabel')}
       >
         <option value="" disabled>
-          选择 VPS…
+          {t('vpsSelector.placeholder')}
         </option>
         {profiles.map((profile) => (
           <option key={profile.id} value={profile.id}>
-            {profile.name}（{profile.host}）
+            {t('vpsSelector.optionLabel', { name: profile.name, host: profile.host })}
           </option>
         ))}
       </select>

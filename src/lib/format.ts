@@ -8,6 +8,8 @@
  *   - `src/pages/NodeDetail.tsx` 的 `formatAbsoluteTime`
  */
 
+import i18next, { t } from 'i18next';
+
 const KIB = 1024;
 const MIB = KIB * 1024;
 const GIB = MIB * 1024;
@@ -50,10 +52,10 @@ export function formatRelativeTime(timestamp: number): string {
   const hour = 60 * minute;
   const day = 24 * hour;
 
-  if (diff < minute) return '刚刚';
-  if (diff < hour) return `${Math.floor(diff / minute)} 分钟前`;
-  if (diff < day) return `${Math.floor(diff / hour)} 小时前`;
-  return `${Math.floor(diff / day)} 天前`;
+  if (diff < minute) return t('format.justNow');
+  if (diff < hour) return t('format.minutesAgo', { count: Math.floor(diff / minute) });
+  if (diff < day) return t('format.hoursAgo', { count: Math.floor(diff / hour) });
+  return t('format.daysAgo', { count: Math.floor(diff / day) });
 }
 
 /**
@@ -64,7 +66,7 @@ export function formatRelativeTime(timestamp: number): string {
  * @example 输出形如 '2026/07/18 15:04'
  */
 export function formatAbsoluteTime(timestamp: number): string {
-  return new Intl.DateTimeFormat('zh-CN', {
+  return new Intl.DateTimeFormat(i18next.language, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -86,7 +88,7 @@ export function formatUptime(seconds: number): string {
   const hours = Math.floor((seconds % 86_400) / 3_600);
   const minutes = Math.floor((seconds % 3_600) / 60);
 
-  if (days > 0) return `${days} 天 ${hours} 小时`;
-  if (hours > 0) return `${hours} 小时 ${minutes} 分钟`;
-  return `${minutes} 分钟`;
+  if (days > 0) return t('format.uptimeDaysHours', { days, hours });
+  if (hours > 0) return t('format.uptimeHoursMinutes', { hours, minutes });
+  return t('format.uptimeMinutes', { minutes });
 }

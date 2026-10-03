@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { HTMLAttributes, ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
 /** Callout 语义变体（视觉唯一定义在 index.css 的 .callout-* 全局类，本组件为薄包装） */
 export type CalloutVariant = 'info' | 'warning' | 'danger';
@@ -93,6 +94,7 @@ export function Callout({
   children,
   ...rest
 }: CalloutProps) {
+  const { t } = useTranslation();
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
   return (
@@ -110,7 +112,7 @@ export function Callout({
         {closable ? (
           <button
             type="button"
-            aria-label="关闭"
+            aria-label={t('callout.close')}
             onClick={() => {
               setHidden(true);
               onClose?.();

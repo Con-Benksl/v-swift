@@ -11,6 +11,7 @@ import type {
   VpsProfileSummary,
 } from './types';
 import type { NetworkStats, ServiceStatus, SystemStatus } from './control';
+import { t } from 'i18next';
 
 const now = Date.now();
 const HOUR = 3_600_000;
@@ -21,7 +22,7 @@ const mockNodes: NodeRecord[] = [
     id: 'node-tokyo-vless',
     vpsId: 'vps-tokyo',
     vpsName: 'Tokyo Lightsail',
-    name: '东京主力',
+    name: t('devMock.nodeNameTokyoPrimary'),
     host: '203.0.113.10',
     sshPort: 22,
     sshUser: 'root',
@@ -34,7 +35,7 @@ const mockNodes: NodeRecord[] = [
     id: 'node-tokyo-hy2',
     vpsId: 'vps-tokyo',
     vpsName: 'Tokyo Lightsail',
-    name: '东京备用 HY2',
+    name: t('devMock.nodeNameTokyoBackup'),
     host: '203.0.113.10',
     sshPort: 22,
     sshUser: 'root',
@@ -47,7 +48,7 @@ const mockNodes: NodeRecord[] = [
     id: 'node-fremont-vless',
     vpsId: 'vps-fremont',
     vpsName: 'Fremont Vultr',
-    name: '美西直连',
+    name: t('devMock.nodeNameFremont'),
     host: '198.51.100.20',
     sshPort: 2222,
     sshUser: 'deploy',
@@ -118,7 +119,7 @@ function subscriptionFor(id: string): SubscriptionResult {
   const node = mockNodes.find((item) => item.id === id);
   const host = node?.host ?? '203.0.113.10';
   const port = Number(node?.protocolParams?.port ?? 443);
-  const label = encodeURIComponent(node?.name ?? 'V-Swift 节点');
+  const label = encodeURIComponent(node?.name ?? t('devMock.defaultNodeName'));
   const uri =
     node?.protocol === 'hysteria2'
       ? `hysteria2://mockPassword0000@${host}:${port}?insecure=0&sni=${host}#${label}`
@@ -202,37 +203,37 @@ function emitMockEvent(eventName: string, event: DeployEvent): void {
 async function runMockDeploy(params: DeployParams, deploymentId: string): Promise<NodeRecord> {
   const emit = (event: DeployEvent) => emitMockEvent(`deploy-event-${deploymentId}`, event);
   const steps: Array<[string, string, number]> = [
-    ['detect_os', '识别系统', 700],
-    ['prepare', '准备环境', 900],
-    ['install', '安装核心组件', 1200],
-    ['configure', '写入配置', 800],
-    ['firewall', '开放防火墙', 700],
-    ['reachability', '验证公网连通性', 900],
-    ['subscription', '配置托管订阅', 800],
+    ['detect_os', t('devMock.stepDetectOs'), 700],
+    ['prepare', t('devMock.stepPrepare'), 900],
+    ['install', t('devMock.stepInstall'), 1200],
+    ['configure', t('devMock.stepConfigure'), 800],
+    ['firewall', t('devMock.stepFirewall'), 700],
+    ['reachability', t('devMock.stepReachability'), 900],
+    ['subscription', t('devMock.stepSubscription'), 800],
   ];
   for (const [step, label, ms] of steps) {
     emit({ kind: 'step', step, label });
-    emit({ kind: 'log', line: `[mock] ${label}…` });
+    emit({ kind: 'log', line: `[mock] ${t('devMock.stepStarted', { label })}` });
     if (step === 'install') {
-      emit({ kind: 'log', line: '正在下载 Xray v25.6.8…' });
+      emit({ kind: 'log', line: t('devMock.downloadingXray') });
       for (const received of ['3145728', '9437184', '18874368']) {
         await delay(350);
-        emit({ kind: 'log', line: `下载中... 已接收 ${received}` });
+        emit({ kind: 'log', line: t('devMock.downloadProgress', { received }) });
       }
-      emit({ kind: 'log', line: '下载完成，正在解压 Xray...' });
+      emit({ kind: 'log', line: t('devMock.downloadExtracting') });
       await delay(300);
-      emit({ kind: 'log', line: 'Xray 二进制文件已安装到 /usr/local/bin/xray。' });
+      emit({ kind: 'log', line: t('devMock.xrayInstalled') });
     }
     await delay(ms);
-    emit({ kind: 'log', line: `[mock] ${label} 完成` });
+    emit({ kind: 'log', line: `[mock] ${t('devMock.stepCompleted', { label })}` });
   }
-  emit({ kind: 'step', step: 'done', label: '完成部署' });
+  emit({ kind: 'step', step: 'done', label: t('devMock.deployDone') });
 
   const record: NodeRecord = {
     id: `node-mock-${deploymentId}`,
     vpsId: params.vpsProfileId ?? 'vps-mock-new',
     vpsName: params.vpsName || 'Mock VPS',
-    name: params.nodeName || '新节点',
+    name: params.nodeName || t('devMock.newNodeName'),
     host: params.credential?.host ?? '203.0.113.10',
     sshPort: params.credential?.port ?? 22,
     sshUser: params.credential?.user ?? 'root',
@@ -256,7 +257,7 @@ export async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>)
       return [...mockProfiles] as T;
     case 'get_node': {
       const record = mockNodes.find((node) => node.id === args?.id);
-      if (!record) throw new Error(`[mock] 找不到节点 ${String(args?.id)}`);
+      if (!record) throw new Error(`[mock] ${t('devMock.nodeNotFound', { id: String(args?.id) })}`);
       return record as T;
     }
     case 'get_subscription':
@@ -332,7 +333,7 @@ export async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>)
       return [...mockLogs] as T;
     case 'get_service_status': {
       const service = mockServices.find((item) => item.protocol === args?.protocol);
-      if (!service) throw new Error(`[mock] 未知协议 ${String(args?.protocol)}`);
+      if (!service) throw new Error(`[mock] ${t('devMock.unknownProtocol', { protocol: String(args?.protocol) })}`);
       return service as T;
     }
     case 'get_connection_status':
@@ -342,6 +343,6 @@ export async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>)
       window.open(String(args?.path ?? ''), '_blank', 'noopener,noreferrer');
       return undefined as T;
     default:
-      throw new Error(`[mock] 未覆盖的 IPC 命令：${cmd}`);
+      throw new Error(`[mock] ${t('devMock.uncoveredCommand', { cmd })}`);
   }
 }
